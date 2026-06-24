@@ -77,3 +77,6 @@ tsconfig.tsbuildinfo
 # OS metadata
 .DS_Store
 Thumbs.db
+
+# Agent skills
+.agents/
