@@ -1,0 +1,113 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Outfit – clean modern sans-serif matching Blinkit's typography */
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&display=swap');
+
+/* ─── Blinkit Brand Design Tokens ─────────────────────────────────────────── */
+:root {
+  /* Primary: Blinkit Signature Yellow */
+  --primary:            51 97% 50%;   /* #F7D108 */
+  --primary-hover:      47 100% 44%;  /* #E6C200 */
+  --primary-foreground: 0 0% 7%;      /* #121212 – black text on yellow */
+
+  /* Backgrounds */
+  --background:         0 0% 7%;      /* #121212 */
+  --card:               0 0% 10%;     /* #1A1A1A */
+  --card-foreground:    0 0% 96%;     /* #F5F5F5 */
+
+  /* Typography */
+  --foreground:         0 0% 96%;     /* #F5F5F5 */
+  --muted:              0 0% 13%;     /* #222222 */
+  --muted-foreground:   0 0% 54%;     /* #8A8A8A */
+
+  /* Borders */
+  --border:             0 0% 18%;     /* #2E2E2E */
+
+  /* Radius */
+  --radius: 0.75rem;
+}
+
+/* ─── Base Styles ──────────────────────────────────────────────────────────── */
+body {
+  background-color: hsl(var(--background));
+  color: hsl(var(--foreground));
+  font-family: 'Outfit', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ─── Reusable Component Classes ───────────────────────────────────────────── */
+@layer components {
+  /* Primary CTA – Blinkit yellow with black text */
+  .btn-primary {
+    @apply bg-blinkit-yellow hover:bg-blinkit-yellow-hover text-blinkit-black font-bold
+           py-2.5 px-5 rounded-lg transition-all duration-200 active:scale-95
+           inline-flex items-center justify-center gap-2 cursor-pointer;
+  }
+
+  /* Secondary outline button */
+  .btn-secondary {
+    @apply bg-transparent border border-blinkit-yellow text-blinkit-yellow font-semibold
+           py-2.5 px-5 rounded-lg hover:bg-blinkit-yellow-soft transition-all duration-200
+           inline-flex items-center justify-center gap-2 cursor-pointer;
+  }
+
+  /* Dark card surface */
+  .card {
+    @apply bg-[#1A1A1A] border border-[#2E2E2E] rounded-xl p-5;
+  }
+
+  /* Form input */
+  .input {
+    @apply w-full bg-[#222222] border border-[#2E2E2E] text-white p-3 rounded-lg
+           outline-none placeholder-[#8A8A8A] focus:border-blinkit-yellow transition-colors;
+  }
+
+  /* Status pill variants */
+  .badge-placed       { @apply bg-blue-500/10 text-blue-400; }
+  .badge-accepted     { @apply bg-yellow-500/10 text-yellow-400; }
+  .badge-preparing    { @apply bg-amber-500/10 text-amber-400; }
+  .badge-awaiting     { @apply bg-orange-500/10 text-orange-400; }
+  .badge-delivering   { @apply bg-green-500/10 text-green-400; }
+  .badge-delivered    { @apply bg-emerald-500/10 text-emerald-400; }
+  .badge-cancelled    { @apply bg-red-500/10 text-red-400; }
+
+  /* Glassmorphism surface */
+  .glass {
+    @apply bg-white/5 backdrop-blur-md border border-white/10;
+  }
+
+  /* Skeleton shimmer */
+  .skeleton {
+    @apply bg-[#2E2E2E] animate-pulse rounded;
+  }
+}
+
+/* ─── Animations ───────────────────────────────────────────────────────────── */
+@keyframes bounce-subtle {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-4px); }
+}
+.animate-bounce-subtle {
+  animation: bounce-subtle 2s ease-in-out infinite;
+}
+
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.animate-fade-in {
+  animation: fade-in 0.3s ease-out both;
+}
+
+@keyframes ping-soft {
+  0%   { transform: scale(1);    opacity: 1; }
+  75%  { transform: scale(1.5);  opacity: 0; }
+  100% { transform: scale(1.5);  opacity: 0; }
+}
+.animate-ping-soft {
+  animation: ping-soft 1.5s cubic-bezier(0, 0, 0.2, 1) infinite;
+}
