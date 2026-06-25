@@ -2,11 +2,18 @@
 CREATE EXTENSION IF NOT EXISTS postgis SCHEMA public;
 
 -- Enums setup
-CREATE TYPE public.role_type AS ENUM ('customer', 'seller', 'delivery', 'admin');
-CREATE TYPE public.order_status AS ENUM ('placed', 'accepted', 'preparing', 'awaiting_pickup', 'out_for_delivery', 'delivered', 'cancelled');
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'role_type') THEN
+        CREATE TYPE public.role_type AS ENUM ('customer', 'seller', 'delivery', 'admin');
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'order_status') THEN
+        CREATE TYPE public.order_status AS ENUM ('placed', 'accepted', 'preparing', 'awaiting_pickup', 'out_for_delivery', 'delivered', 'cancelled');
+    END IF;
+END$$;
 
 -- 1. Profiles Table
-CREATE TABLE public.profiles (
+CREATE TABLE IF NOT EXISTS public.profiles (
     id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
     role public.role_type NOT NULL DEFAULT 'customer',
     full_name TEXT NOT NULL,
@@ -17,7 +24,7 @@ CREATE TABLE public.profiles (
 );
 
 -- 2. Sellers Table
-CREATE TABLE public.sellers (
+CREATE TABLE IF NOT EXISTS public.sellers (
     id UUID PRIMARY KEY REFERENCES public.profiles(id) ON DELETE CASCADE,
     store_name TEXT NOT NULL,
     description TEXT,
@@ -31,7 +38,7 @@ CREATE TABLE public.sellers (
 );
 
 -- 3. Delivery Partners Table
-CREATE TABLE public.delivery_partners (
+CREATE TABLE IF NOT EXISTS public.delivery_partners (
     id UUID PRIMARY KEY REFERENCES public.profiles(id) ON DELETE CASCADE,
     is_online BOOLEAN NOT NULL DEFAULT false,
     location public.geography(Point, 4326),
@@ -40,7 +47,7 @@ CREATE TABLE public.delivery_partners (
 );
 
 -- 4. Products Table
-CREATE TABLE public.products (
+CREATE TABLE IF NOT EXISTS public.products (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     seller_id UUID NOT NULL REFERENCES public.sellers(id) ON DELETE CASCADE,
     name TEXT NOT NULL,
@@ -55,7 +62,7 @@ CREATE TABLE public.products (
 );
 
 -- 5. Carts Table
-CREATE TABLE public.carts (
+CREATE TABLE IF NOT EXISTS public.carts (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL UNIQUE REFERENCES public.profiles(id) ON DELETE CASCADE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -63,7 +70,7 @@ CREATE TABLE public.carts (
 );
 
 -- 6. Cart Items Table
-CREATE TABLE public.cart_items (
+CREATE TABLE IF NOT EXISTS public.cart_items (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     cart_id UUID NOT NULL REFERENCES public.carts(id) ON DELETE CASCADE,
     product_id UUID NOT NULL REFERENCES public.products(id) ON DELETE CASCADE,
@@ -73,7 +80,7 @@ CREATE TABLE public.cart_items (
 );
 
 -- 7. Orders Table
-CREATE TABLE public.orders (
+CREATE TABLE IF NOT EXISTS public.orders (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     customer_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE RESTRICT,
     seller_id UUID NOT NULL REFERENCES public.sellers(id) ON DELETE RESTRICT,
@@ -87,7 +94,7 @@ CREATE TABLE public.orders (
 );
 
 -- 8. Order Items Table
-CREATE TABLE public.order_items (
+CREATE TABLE IF NOT EXISTS public.order_items (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     order_id UUID NOT NULL REFERENCES public.orders(id) ON DELETE CASCADE,
     product_id UUID NOT NULL REFERENCES public.products(id) ON DELETE RESTRICT,
@@ -96,7 +103,7 @@ CREATE TABLE public.order_items (
 );
 
 -- 9. Delivery Logs Table (Real-time tracking)
-CREATE TABLE public.delivery_logs (
+CREATE TABLE IF NOT EXISTS public.delivery_logs (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     order_id UUID NOT NULL REFERENCES public.orders(id) ON DELETE CASCADE,
     delivery_partner_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
@@ -117,10 +124,10 @@ ALTER TABLE public.order_items ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.delivery_logs ENABLE ROW LEVEL SECURITY;
 
 -- Spatial GIST Indexing for Geolocation Queries
-CREATE INDEX sellers_location_gist ON public.sellers USING gist (location);
-CREATE INDEX delivery_partners_location_gist ON public.delivery_partners USING gist (location);
-CREATE INDEX orders_delivery_location_gist ON public.orders USING gist (delivery_location);
-CREATE INDEX delivery_logs_location_gist ON public.delivery_logs USING gist (location);
+CREATE INDEX IF NOT EXISTS sellers_location_gist ON public.sellers USING gist (location);
+CREATE INDEX IF NOT EXISTS delivery_partners_location_gist ON public.delivery_partners USING gist (location);
+CREATE INDEX IF NOT EXISTS orders_delivery_location_gist ON public.orders USING gist (delivery_location);
+CREATE INDEX IF NOT EXISTS delivery_logs_location_gist ON public.delivery_logs USING gist (location);
 
 -- Triggers: Automatically set updated_at column
 CREATE OR REPLACE FUNCTION public.set_updated_at()
@@ -131,11 +138,22 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+DROP TRIGGER IF EXISTS handle_updated_at_profiles ON public.profiles;
 CREATE TRIGGER handle_updated_at_profiles BEFORE UPDATE ON public.profiles FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+DROP TRIGGER IF EXISTS handle_updated_at_sellers ON public.sellers;
 CREATE TRIGGER handle_updated_at_sellers BEFORE UPDATE ON public.sellers FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+DROP TRIGGER IF EXISTS handle_updated_at_delivery_partners ON public.delivery_partners;
 CREATE TRIGGER handle_updated_at_delivery_partners BEFORE UPDATE ON public.delivery_partners FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+DROP TRIGGER IF EXISTS handle_updated_at_products ON public.products;
 CREATE TRIGGER handle_updated_at_products BEFORE UPDATE ON public.products FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+DROP TRIGGER IF EXISTS handle_updated_at_carts ON public.carts;
 CREATE TRIGGER handle_updated_at_carts BEFORE UPDATE ON public.carts FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+DROP TRIGGER IF EXISTS handle_updated_at_orders ON public.orders;
 CREATE TRIGGER handle_updated_at_orders BEFORE UPDATE ON public.orders FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
 
 -- Trigger: Automatically generate geohash from location geometry on insertion/modification
@@ -150,7 +168,10 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+DROP TRIGGER IF EXISTS handle_seller_geohash ON public.sellers;
 CREATE TRIGGER handle_seller_geohash BEFORE INSERT OR UPDATE OF location ON public.sellers FOR EACH ROW EXECUTE FUNCTION public.sync_seller_geohash();
+
+DROP TRIGGER IF EXISTS handle_delivery_partner_geohash ON public.delivery_partners;
 CREATE TRIGGER handle_delivery_partner_geohash BEFORE INSERT OR UPDATE OF location ON public.delivery_partners FOR EACH ROW EXECUTE FUNCTION public.sync_seller_geohash();
 
 -- Trigger: Insert a profile when a new user signs up in Supabase Auth
@@ -197,32 +218,12 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
+DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
 CREATE TRIGGER on_auth_user_created
     AFTER INSERT ON auth.users
     FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
 
 -- High-Performance Radius Search RPC for hyper-local storefront matching (5km SLA)
-CREATE OR REPLACE FUNCTION public.get_nearby_sellers(
-    customer_lat DOUBLE PRECISION,
-    customer_lng DOUBLE PRECISION,
-    max_distance_meters DOUBLE PRECISION DEFAULT 5000
-)
-RETURNS TABLE (
-    id UUID,
-    store_name TEXT,
-    description TEXT,
-    address TEXT,
-    location public.geography(Point, 4326),
-    geohash VARCHAR(12),
-    banner_url TEXT,
-    distance_meters DOUBLE PRECISION
-) AS $$
-DECLARE
-    customer_geom public.geography(Point, 4326);
-END;
-$$;
-
--- Replace return block
 CREATE OR REPLACE FUNCTION public.get_nearby_sellers(
     customer_lat DOUBLE PRECISION,
     customer_lng DOUBLE PRECISION,
@@ -336,6 +337,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
+DROP TRIGGER IF EXISTS on_order_status_awaiting_pickup ON public.orders;
 CREATE TRIGGER on_order_status_awaiting_pickup
     BEFORE UPDATE ON public.orders
     FOR EACH ROW
@@ -346,22 +348,26 @@ CREATE TRIGGER on_order_status_awaiting_pickup
 --------------------------------------------------------------------------------
 
 -- 1. Profiles Policies
+DROP POLICY IF EXISTS "Profiles are viewable by authenticated users" ON public.profiles;
 CREATE POLICY "Profiles are viewable by authenticated users" 
     ON public.profiles FOR SELECT 
     TO authenticated 
     USING (true);
 
+DROP POLICY IF EXISTS "Users can update their own profile" ON public.profiles;
 CREATE POLICY "Users can update their own profile" 
     ON public.profiles FOR UPDATE 
     TO authenticated 
     USING (auth.uid() = id);
 
 -- 2. Sellers Policies
+DROP POLICY IF EXISTS "Sellers viewable by authenticated users" ON public.sellers;
 CREATE POLICY "Sellers viewable by authenticated users" 
     ON public.sellers FOR SELECT 
     TO authenticated 
     USING (true);
 
+DROP POLICY IF EXISTS "Sellers can register their own profile" ON public.sellers;
 CREATE POLICY "Sellers can register their own profile" 
     ON public.sellers FOR INSERT 
     TO authenticated 
@@ -373,28 +379,33 @@ CREATE POLICY "Sellers can register their own profile"
         )
     );
 
+DROP POLICY IF EXISTS "Sellers can update their own store details" ON public.sellers;
 CREATE POLICY "Sellers can update their own store details" 
     ON public.sellers FOR UPDATE 
     TO authenticated 
     USING (auth.uid() = id);
 
 -- 3. Delivery Partners Policies
+DROP POLICY IF EXISTS "Delivery partners viewable by authenticated users" ON public.delivery_partners;
 CREATE POLICY "Delivery partners viewable by authenticated users"
     ON public.delivery_partners FOR SELECT
     TO authenticated
     USING (true);
 
+DROP POLICY IF EXISTS "Delivery partners can update their own status" ON public.delivery_partners;
 CREATE POLICY "Delivery partners can update their own status"
     ON public.delivery_partners FOR ALL
     TO authenticated
     USING (auth.uid() = id);
 
 -- 4. Products Policies
+DROP POLICY IF EXISTS "Products viewable by authenticated users" ON public.products;
 CREATE POLICY "Products viewable by authenticated users" 
     ON public.products FOR SELECT 
     TO authenticated 
     USING (is_available = true OR seller_id = auth.uid());
 
+DROP POLICY IF EXISTS "Sellers can manage their products" ON public.products;
 CREATE POLICY "Sellers can manage their products" 
     ON public.products FOR ALL 
     TO authenticated 
@@ -407,12 +418,14 @@ CREATE POLICY "Sellers can manage their products"
     );
 
 -- 5. Carts Policies
+DROP POLICY IF EXISTS "Users can access their own cart" ON public.carts;
 CREATE POLICY "Users can access their own cart" 
     ON public.carts FOR ALL 
     TO authenticated 
     USING (user_id = auth.uid());
 
 -- 6. Cart Items Policies
+DROP POLICY IF EXISTS "Users can manage their cart items" ON public.cart_items;
 CREATE POLICY "Users can manage their cart items" 
     ON public.cart_items FOR ALL 
     TO authenticated 
@@ -424,6 +437,7 @@ CREATE POLICY "Users can manage their cart items"
     );
 
 -- 7. Orders Policies
+DROP POLICY IF EXISTS "Users can view their orders" ON public.orders;
 CREATE POLICY "Users can view their orders" 
     ON public.orders FOR SELECT 
     TO authenticated 
@@ -437,6 +451,7 @@ CREATE POLICY "Users can view their orders"
         )
     );
 
+DROP POLICY IF EXISTS "Customers can create orders" ON public.orders;
 CREATE POLICY "Customers can create orders" 
     ON public.orders FOR INSERT 
     TO authenticated 
@@ -448,6 +463,7 @@ CREATE POLICY "Customers can create orders"
         )
     );
 
+DROP POLICY IF EXISTS "Authorized members can update orders" ON public.orders;
 CREATE POLICY "Authorized members can update orders" 
     ON public.orders FOR UPDATE 
     TO authenticated 
@@ -462,6 +478,7 @@ CREATE POLICY "Authorized members can update orders"
     );
 
 -- 8. Order Items Policies
+DROP POLICY IF EXISTS "Users can view their order items" ON public.order_items;
 CREATE POLICY "Users can view their order items" 
     ON public.order_items FOR SELECT 
     TO authenticated 
@@ -478,6 +495,7 @@ CREATE POLICY "Users can view their order items"
     );
 
 -- 9. Delivery Logs Policies
+DROP POLICY IF EXISTS "Authorized user types can view delivery logs" ON public.delivery_logs;
 CREATE POLICY "Authorized user types can view delivery logs" 
     ON public.delivery_logs FOR SELECT 
     TO authenticated 
@@ -493,6 +511,7 @@ CREATE POLICY "Authorized user types can view delivery logs"
         )
     );
 
+DROP POLICY IF EXISTS "Delivery partner can submit logs" ON public.delivery_logs;
 CREATE POLICY "Delivery partner can submit logs" 
     ON public.delivery_logs FOR INSERT 
     TO authenticated 
