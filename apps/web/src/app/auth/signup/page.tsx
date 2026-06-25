@@ -130,7 +130,24 @@ function SignupForm() {
                 transition: 'all 0.2s',
               }}
             >
-              Seller / Store
+              Seller
+            </button>
+            <button
+              type="button"
+              onClick={() => setRole('delivery')}
+              style={{
+                flex: 1,
+                padding: '0.5rem',
+                borderRadius: '0.375rem',
+                border: 'none',
+                background: role === 'delivery' ? '#F7D108' : 'transparent',
+                color: role === 'delivery' ? '#121212' : '#fff',
+                fontWeight: 700,
+                cursor: 'pointer',
+                transition: 'all 0.2s',
+              }}
+            >
+              Delivery Partner
             </button>
           </div>
         </div>

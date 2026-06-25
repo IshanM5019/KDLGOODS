@@ -11,6 +11,7 @@ import {
 export default function DeliveryDashboard() {
   const [isOnline, setIsOnline] = useState(false);
   const [driverId, setDriverId] = useState('driver-uuid-placeholder-123');
+  const [loadingUser, setLoadingUser] = useState(true);
   const [activeOrder, setActiveOrder] = useState<Order | null>(null);
   const [showAlert, setShowAlert] = useState(false);
 
@@ -24,6 +25,24 @@ export default function DeliveryDashboard() {
   const trackRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    const fetchUser = async () => {
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user) {
+          setDriverId(user.id);
+        }
+      } catch (err) {
+        console.error('Failed to get delivery partner user:', err);
+      } finally {
+        setLoadingUser(false);
+      }
+    };
+    fetchUser();
+  }, []);
+
+  useEffect(() => {
+    if (loadingUser) return;
+
     if (!isOnline) {
       setActiveOrder(null);
       setShowAlert(false);
@@ -77,7 +96,7 @@ export default function DeliveryDashboard() {
       supabase.removeChannel(orderSubscription);
       clearInterval(checkLocalInterval);
     };
-  }, [isOnline, activeOrder]);
+  }, [isOnline, activeOrder, driverId, loadingUser]);
 
   const updateDriverLocation = async () => {
     const { error } = await supabase
