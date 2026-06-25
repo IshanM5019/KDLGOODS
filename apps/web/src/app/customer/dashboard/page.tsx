@@ -48,6 +48,7 @@ export default function CustomerDashboard() {
   const [latInput, setLatInput] = useState(String(DANTEWADA_CENTER.latitude));
   const [lngInput, setLngInput] = useState(String(DANTEWADA_CENTER.longitude));
   const [searchQuery, setSearchQuery] = useState('');
+  const [showLocationWarning, setShowLocationWarning] = useState(false);
 
   // Cart
   const [cart, setCart] = useState<CartItem[]>([]);
@@ -59,6 +60,39 @@ export default function CustomerDashboard() {
   const [selectedSeller, setSelectedSeller] = useState<LocalSeller | null>(null);
   const [sellerProducts, setSellerProducts] = useState<any[]>([]);
   const [loadingProducts, setLoadingProducts] = useState(false);
+
+  const detectLocation = () => {
+    if (typeof window !== 'undefined' && 'navigator' in window && navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          const lat = position.coords.latitude;
+          const lng = position.coords.longitude;
+          const distance = calculateDistance({ latitude: lat, longitude: lng }, DANTEWADA_CENTER);
+          
+          if (distance > 15) {
+            // Outside operational zone: show warning banner, keep Dantewada Center
+            setShowLocationWarning(true);
+            setUserCoords(DANTEWADA_CENTER);
+            setLatInput(String(DANTEWADA_CENTER.latitude));
+            setLngInput(String(DANTEWADA_CENTER.longitude));
+          } else {
+            // Inside operational zone: set coords
+            setShowLocationWarning(false);
+            setUserCoords({ latitude: lat, longitude: lng });
+            setLatInput(String(lat));
+            setLngInput(String(lng));
+          }
+        },
+        (err) => {
+          console.warn('Geolocation query failed or denied:', err.message);
+        }
+      );
+    }
+  };
+
+  useEffect(() => {
+    detectLocation();
+  }, []);
 
   useEffect(() => { fetchSellers(); }, [userCoords]);
 
@@ -238,9 +272,24 @@ export default function CustomerDashboard() {
                 <input type="number" step="0.0001" className="input" value={lngInput} onChange={e => setLngInput(e.target.value)} />
               </div>
             </div>
-            <button onClick={handleUpdateCoords} className="btn-primary w-full text-sm">
-              Update Search Centre
-            </button>
+            <div className="flex gap-2">
+              <button onClick={handleUpdateCoords} className="btn-primary flex-1 text-xs py-2.5">
+                Update Centre
+              </button>
+              <button 
+                onClick={detectLocation} 
+                className="px-3 py-2.5 rounded-lg border border-zinc-800 bg-[#222] hover:bg-zinc-800 text-zinc-300 transition text-xs font-bold flex items-center gap-1"
+              >
+                <Navigation size={12} /> Detect Current
+              </button>
+            </div>
+
+            {showLocationWarning && (
+              <div className="p-3 rounded-xl flex flex-col gap-1 text-[10px] leading-normal" style={{ background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.2)', color: '#F59E0B' }}>
+                <span className="font-black flex items-center gap-1 text-yellow-500">⚠️ OUTSIDE SERVICE ZONE</span>
+                <span>We noticed your location is outside Kirandul geofence. Centred to Dantewada Center so you can test the storefronts.</span>
+              </div>
+            )}
           </div>
 
           <div className="p-5 rounded-xl" style={{ background: '#1A1A1A', border: '1px solid #2E2E2E' }}>

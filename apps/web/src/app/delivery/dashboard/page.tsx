@@ -624,7 +624,7 @@ export default function DeliveryDashboard() {
                 </div>
                 <div>
                   <h3 className="text-base font-black flex items-center gap-1.5 text-yellow-500">⚡ Dispatch Request!</h3>
-                  <p className="text-[11px]" style={{ color: '#8A8A8A' }}>Immediate pickup requested. Swipe to accept parcel.</p>
+                  <p className="text-[11px]" style={{ color: '#8A8A8A' }}>Immediate pickup requested. Click the button or swipe to accept.</p>
                 </div>
 
                 <div className="p-3.5 rounded-xl space-y-2.5 text-xs" style={{ backgroundColor: '#121212', border: '1px solid #2E2E2E' }}>
@@ -641,6 +641,16 @@ export default function DeliveryDashboard() {
                     <span className="font-bold text-yellow-500">Est. Payout: +₹65.00</span>
                   </div>
                 </div>
+
+                {/* Accept Button */}
+                <button
+                  onClick={handleAcceptRequest}
+                  className="w-full font-bold py-3 rounded-xl bg-yellow-500 text-black hover:bg-yellow-400 transition text-xs uppercase tracking-wider flex items-center justify-center gap-2 shadow-lg"
+                >
+                  <Check size={16} /> Accept Order
+                </button>
+
+                <div className="text-center text-[10px] text-zinc-500 font-semibold my-1">— OR —</div>
 
                 {/* Accept Swipe Slider */}
                 <div ref={trackRef} className="w-full h-12 rounded-xl relative select-none flex items-center justify-center" style={{ background: '#121212', border: '1px solid #2E2E2E' }}>
