@@ -69,9 +69,28 @@ function SignupForm() {
       console.error('Signup error:', err);
       let displayMsg = 'An error occurred during registration.';
       if (err) {
-        if (err.message) displayMsg = err.message;
-        else if (typeof err === 'object') displayMsg = JSON.stringify(err);
-        else displayMsg = String(err);
+        if (typeof err === 'string') {
+          displayMsg = err;
+        } else {
+          const parts: string[] = [];
+          if (err.message) parts.push(err.message);
+          if (err.error_description) parts.push(err.error_description);
+          if (err.error) parts.push(err.error);
+          if (err.status) parts.push(`Status: ${err.status}`);
+          if (err.code) parts.push(`Code: ${err.code}`);
+          
+          if (parts.length === 0) {
+            const keys = Object.getOwnPropertyNames(err);
+            const keyPairs = keys.map(k => `${k}: ${err[k]}`);
+            if (keyPairs.length > 0) {
+              displayMsg = keyPairs.join(', ');
+            } else {
+              displayMsg = JSON.stringify(err);
+            }
+          } else {
+            displayMsg = parts.join(' | ');
+          }
+        }
       }
       setErrorMsg(displayMsg);
     } finally {

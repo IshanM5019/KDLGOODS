@@ -12,6 +12,13 @@ BEGIN
     END IF;
 END$$;
 
+-- Ensure missing enum values are added if enums were pre-created
+ALTER TYPE public.role_type ADD VALUE IF NOT EXISTS 'customer';
+ALTER TYPE public.role_type ADD VALUE IF NOT EXISTS 'seller';
+ALTER TYPE public.role_type ADD VALUE IF NOT EXISTS 'delivery';
+ALTER TYPE public.role_type ADD VALUE IF NOT EXISTS 'admin';
+
+
 -- 1. Profiles Table
 CREATE TABLE IF NOT EXISTS public.profiles (
     id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
@@ -22,6 +29,15 @@ CREATE TABLE IF NOT EXISTS public.profiles (
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- Ensure pre-existing profiles table has all necessary columns
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS role public.role_type NOT NULL DEFAULT 'customer';
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS full_name TEXT NOT NULL DEFAULT 'User';
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS phone_number TEXT;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS avatar_url TEXT;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT now();
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT now();
+
 
 -- 2. Sellers Table
 CREATE TABLE IF NOT EXISTS public.sellers (
