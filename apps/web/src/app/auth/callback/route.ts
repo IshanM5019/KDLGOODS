@@ -21,15 +21,21 @@ export async function GET(request: Request) {
       } = await supabase.auth.getUser();
 
       if (user) {
-        const { data: profile } = await supabase
+        const { data: profile, error: profileErr } = await supabase
           .from('profiles')
           .select('role')
           .eq('id', user.id)
           .single();
 
-        if (profile?.role === 'seller') {
+        // If the profile is missing in the database, fallback to the role from user metadata or 'customer'
+        let role = user.user_metadata?.role || 'customer';
+        if (!profileErr && profile) {
+          role = profile.role;
+        }
+
+        if (role === 'seller') {
           return NextResponse.redirect(`${origin}/seller/dashboard`);
-        } else if (profile?.role === 'delivery') {
+        } else if (role === 'delivery') {
           return NextResponse.redirect(`${origin}/delivery/dashboard`);
         } else {
           return NextResponse.redirect(`${origin}/customer/dashboard`);

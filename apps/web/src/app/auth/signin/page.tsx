@@ -46,12 +46,19 @@ export default function SigninPage() {
         .eq('id', data.user.id)
         .single();
 
-      if (profileErr) throw profileErr;
+      // If the profile is missing in the database, fallback to the role from user metadata or 'customer'
+      let role = data.user.user_metadata?.role || 'customer';
+      if (!profileErr && profile) {
+        role = profile.role;
+      } else if (profileErr && profileErr.code !== 'PGRST116') {
+        // Only throw if it's a real database error, not a "no rows returned" error (PGRST116)
+        throw profileErr;
+      }
 
       // Redirect depending on user role claim
-      if (profile.role === 'seller') {
+      if (role === 'seller') {
         router.push('/seller/dashboard');
-      } else if (profile.role === 'delivery') {
+      } else if (role === 'delivery') {
         router.push('/delivery/dashboard');
       } else {
         router.push('/customer/dashboard');
