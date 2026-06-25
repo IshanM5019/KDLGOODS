@@ -323,14 +323,14 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
--- Trigger: Automatically trigger driver assignment when status goes to awaiting_pickup
+-- Trigger: Automatically trigger driver assignment when status goes to accepted or awaiting_pickup
 CREATE OR REPLACE FUNCTION public.trigger_assign_driver()
 RETURNS TRIGGER AS $$
 DECLARE
     nearest_driver_id UUID;
     seller_loc public.geography(Point, 4326);
 BEGIN
-    IF NEW.status = 'awaiting_pickup' AND OLD.status != 'awaiting_pickup' AND NEW.delivery_partner_id IS NULL THEN
+    IF (NEW.status = 'accepted' OR NEW.status = 'awaiting_pickup') AND NEW.delivery_partner_id IS NULL THEN
         SELECT location INTO seller_loc FROM public.sellers WHERE id = NEW.seller_id;
         
         IF seller_loc IS NOT NULL THEN
@@ -537,3 +537,30 @@ CREATE POLICY "Delivery partner can submit logs"
             WHERE profiles.id = auth.uid() AND profiles.role = 'delivery'
         )
     );
+
+-- 10. Enable Supabase Realtime for Realtime Event Notifications
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM pg_publication WHERE pubname = 'supabase_realtime'
+    ) THEN
+        IF NOT EXISTS (
+            SELECT 1 FROM pg_publication_rel pr 
+            JOIN pg_class c ON pr.prrelid = c.oid 
+            JOIN pg_publication p ON pr.prpubid = p.oid 
+            WHERE p.pubname = 'supabase_realtime' AND c.relname = 'orders'
+        ) THEN
+            ALTER PUBLICATION supabase_realtime ADD TABLE public.orders;
+        END IF;
+
+        IF NOT EXISTS (
+            SELECT 1 FROM pg_publication_rel pr 
+            JOIN pg_class c ON pr.prrelid = c.oid 
+            JOIN pg_publication p ON pr.prpubid = p.oid 
+            WHERE p.pubname = 'supabase_realtime' AND c.relname = 'delivery_partners'
+        ) THEN
+            ALTER PUBLICATION supabase_realtime ADD TABLE public.delivery_partners;
+        END IF;
+    END IF;
+END$$;
+

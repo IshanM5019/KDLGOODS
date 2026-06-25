@@ -7,6 +7,56 @@ import {
   Navigation, Loader2, Award, Check, MapPin,
   ToggleLeft, ToggleRight, ShieldAlert, ArrowRight, RefreshCw
 } from 'lucide-react';
+// Programmatic chime using Web Audio API
+function playNotificationSound() {
+  try {
+    const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+    if (!AudioContextClass) return;
+    const audioCtx = new AudioContextClass();
+    
+    // upward chime notes
+    const notes = [
+      { freq: 523.25, timeOffset: 0, duration: 0.15 }, // C5
+      { freq: 659.25, timeOffset: 0.1, duration: 0.15 }, // E5
+      { freq: 783.99, timeOffset: 0.2, duration: 0.3 }  // G5
+    ];
+
+    notes.forEach(note => {
+      const osc = audioCtx.createOscillator();
+      const gainNode = audioCtx.createGain();
+      
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(note.freq, audioCtx.currentTime + note.timeOffset);
+      
+      gainNode.gain.setValueAtTime(0.15, audioCtx.currentTime + note.timeOffset);
+      gainNode.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + note.timeOffset + note.duration);
+      
+      osc.connect(gainNode);
+      gainNode.connect(audioCtx.destination);
+      
+      osc.start(audioCtx.currentTime + note.timeOffset);
+      osc.stop(audioCtx.currentTime + note.timeOffset + note.duration);
+    });
+  } catch (err) {
+    console.error('Failed to play notification sound:', err);
+  }
+}
+
+function triggerBrowserNotification(title: string, body: string) {
+  if (typeof window !== 'undefined' && 'Notification' in window) {
+    if (Notification.permission === 'granted') {
+      try {
+        new Notification(title, {
+          body,
+          icon: '/icon-192.png',
+          silent: true // Web Audio API plays its own sound
+        });
+      } catch (err) {
+        console.error('Failed to show browser notification:', err);
+      }
+    }
+  }
+}
 
 export default function DeliveryDashboard() {
   const [isOnline, setIsOnline] = useState(false);
@@ -25,6 +75,13 @@ export default function DeliveryDashboard() {
   const trackRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    // Request notification permission on mount
+    if (typeof window !== 'undefined' && 'Notification' in window) {
+      if (Notification.permission === 'default') {
+        Notification.requestPermission();
+      }
+    }
+
     const fetchUser = async () => {
       try {
         const { data: { user } } = await supabase.auth.getUser();
@@ -59,9 +116,19 @@ export default function DeliveryDashboard() {
         { event: 'UPDATE', schema: 'public', table: 'orders' },
         (payload: any) => {
           const updatedOrder = payload.new as Order;
-          if (updatedOrder.delivery_partner_id === driverId && updatedOrder.status === 'awaiting_pickup') {
+          const isAssignedToMe = updatedOrder.delivery_partner_id === driverId;
+          const isAwaitingAction = ['accepted', 'preparing', 'awaiting_pickup'].includes(updatedOrder.status);
+          
+          if (isAssignedToMe && isAwaitingAction) {
             setActiveOrder(updatedOrder);
             setShowAlert(true);
+            
+            // Trigger alerts
+            playNotificationSound();
+            triggerBrowserNotification(
+              '⚡ New Dispatch Request!',
+              `Deliver to: ${updatedOrder.delivery_address}. Swipe to accept.`
+            );
           }
         }
       )
@@ -79,15 +146,27 @@ export default function DeliveryDashboard() {
         return;
       }
 
-      const pendingIndex = local.findIndex((o: any) => o.status === 'awaiting_pickup' && (!o.delivery_partner_id || o.delivery_partner_id === driverId));
+      const pendingIndex = local.findIndex((o: any) => 
+        ['accepted', 'preparing', 'awaiting_pickup'].includes(o.status) && 
+        (!o.delivery_partner_id || o.delivery_partner_id === driverId)
+      );
+
       if (pendingIndex !== -1) {
         if (!local[pendingIndex].delivery_partner_id) {
           local[pendingIndex].delivery_partner_id = driverId;
           localStorage.setItem('kdlgoods_orders', JSON.stringify(local));
         }
         if (!activeOrder || activeOrder.id !== local[pendingIndex].id) {
-          setActiveOrder(local[pendingIndex]);
+          const matchedOrder = local[pendingIndex];
+          setActiveOrder(matchedOrder);
           setShowAlert(true);
+          
+          // Trigger alerts
+          playNotificationSound();
+          triggerBrowserNotification(
+            '⚡ New Dispatch Request!',
+            `Deliver to: ${matchedOrder.delivery_address}. Swipe to accept.`
+          );
         }
       }
     }, 1000);
@@ -97,6 +176,7 @@ export default function DeliveryDashboard() {
       clearInterval(checkLocalInterval);
     };
   }, [isOnline, activeOrder, driverId, loadingUser]);
+
 
   const updateDriverLocation = async () => {
     const { error } = await supabase
