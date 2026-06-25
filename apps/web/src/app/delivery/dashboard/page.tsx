@@ -63,16 +63,16 @@ function triggerBrowserNotification(title: string, body: string) {
 
 // Preset GPS Simulation Steps (Store -> Customer)
 const ROUTE_STEPS = [
-  { latitude: 18.8475, longitude: 81.2135, instruction: "Head north toward Merchant store", dist: "1.2 km" },
-  { latitude: 18.8480, longitude: 81.2140, instruction: "Turn right onto Store Lane", dist: "850 m" },
-  { latitude: 18.8490, longitude: 81.2150, instruction: "Arriving at Merchant Store on left", dist: "300 m" },
-  { latitude: 18.8492, longitude: 81.2155, instruction: "Arrived at Merchant! Awaiting pick up.", dist: "0 m" }, // Step 3
-  { latitude: 18.8492, longitude: 81.2155, instruction: "Depart Merchant. Head toward Customer location.", dist: "2.4 km" },
-  { latitude: 18.8482, longitude: 81.2165, instruction: "Make a U-turn at Main Junction", dist: "1.8 km" },
-  { latitude: 18.8465, longitude: 81.2175, instruction: "Continue straight on Town Highway", dist: "1.2 km" },
-  { latitude: 18.8450, longitude: 81.2185, instruction: "Turn left at Clock Tower", dist: "600 m" },
-  { latitude: 18.8440, longitude: 81.2190, instruction: "Arriving at customer address", dist: "150 m" },
-  { latitude: 18.8435, longitude: 81.2195, instruction: "Arrived! Deliver the parcel to customer.", dist: "0 m" } // Step 9
+  { latitude: 18.8475, longitude: 81.7035, instruction: "Head north toward Merchant store", dist: "1.2 km" },
+  { latitude: 18.8480, longitude: 81.7040, instruction: "Turn right onto Store Lane", dist: "850 m" },
+  { latitude: 18.8490, longitude: 81.7050, instruction: "Arriving at Merchant Store on left", dist: "300 m" },
+  { latitude: 18.8492, longitude: 81.7055, instruction: "Arrived at Merchant! Awaiting pick up.", dist: "0 m" }, // Step 3
+  { latitude: 18.8492, longitude: 81.7055, instruction: "Depart Merchant. Head toward Customer location.", dist: "2.4 km" },
+  { latitude: 18.8482, longitude: 81.7065, instruction: "Make a U-turn at Main Junction", dist: "1.8 km" },
+  { latitude: 18.8465, longitude: 81.7075, instruction: "Continue straight on Town Highway", dist: "1.2 km" },
+  { latitude: 18.8450, longitude: 81.7085, instruction: "Turn left at Clock Tower", dist: "600 m" },
+  { latitude: 18.8440, longitude: 81.7090, instruction: "Arriving at customer address", dist: "150 m" },
+  { latitude: 18.8435, longitude: 81.7095, instruction: "Arrived! Deliver the parcel to customer.", dist: "0 m" } // Step 9
 ];
 
 interface ChatMessage {

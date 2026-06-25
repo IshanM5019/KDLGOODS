@@ -341,6 +341,15 @@ BEGIN
             ORDER BY ST_Distance(dp.location, seller_loc) ASC
             LIMIT 1;
 
+            -- Developer/Remote testing fallback: if no online rider is within 10km of the store, assign the nearest online rider regardless of distance
+            IF nearest_driver_id IS NULL THEN
+                SELECT dp.id INTO nearest_driver_id
+                FROM public.delivery_partners dp
+                WHERE dp.is_online = true
+                ORDER BY ST_Distance(dp.location, seller_loc) ASC
+                LIMIT 1;
+            END IF;
+
             IF nearest_driver_id IS NOT NULL THEN
                 NEW.delivery_partner_id := nearest_driver_id;
                 
