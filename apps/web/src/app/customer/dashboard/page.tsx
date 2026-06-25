@@ -42,6 +42,7 @@ export default function CustomerDashboard() {
   const [sellers, setSellers] = useState<LocalSeller[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [customerId, setCustomerId] = useState<string>('00000000-0000-0000-0000-000000000000');
 
   // Default to Dantewada Kirandul operational centre
   const [userCoords, setUserCoords] = useState<LatLng>(DANTEWADA_CENTER);
@@ -91,6 +92,17 @@ export default function CustomerDashboard() {
   };
 
   useEffect(() => {
+    const fetchUser = async () => {
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user) {
+          setCustomerId(user.id);
+        }
+      } catch (err) {
+        console.error('Failed to fetch user:', err);
+      }
+    };
+    fetchUser();
     detectLocation();
   }, []);
 
@@ -187,7 +199,7 @@ export default function CustomerDashboard() {
 
     try {
       const payload = {
-        customer_id: '00000000-0000-0000-0000-000000000000',
+        customer_id: customerId,
         seller_id: cart[0].seller_id,
         status: 'placed',
         total_amount: cartTotal,
