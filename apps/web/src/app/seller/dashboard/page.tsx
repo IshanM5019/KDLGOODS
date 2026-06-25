@@ -35,6 +35,7 @@ async function uploadProductImage(file: File, sellerId: string): Promise<string>
 export default function SellerDashboard() {
   const [products, setProducts] = useState<Product[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
+  const [activeTab, setActiveTab] = useState<'orders' | 'catalog'>('orders');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -464,9 +465,40 @@ export default function SellerDashboard() {
             ))}
           </div>
 
+          {/* Mobile Tab Switcher */}
+          <div className="flex border-b border-zinc-800 mb-6 lg:hidden">
+            <button
+              onClick={() => setActiveTab('orders')}
+              className={`pb-3 px-6 text-sm font-bold border-b-2 transition flex items-center gap-2 ${
+                activeTab === 'orders'
+                  ? 'border-yellow-500 text-yellow-500'
+                  : 'border-transparent text-zinc-400 hover:text-zinc-200'
+              }`}
+            >
+              <Clock size={16} />
+              <span>Live Orders</span>
+              {orders.filter(o => ['placed', 'accepted', 'preparing'].includes(o.status)).length > 0 && (
+                <span className="bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full animate-pulse">
+                  {orders.filter(o => ['placed', 'accepted', 'preparing'].includes(o.status)).length}
+                </span>
+              )}
+            </button>
+            <button
+              onClick={() => setActiveTab('catalog')}
+              className={`pb-3 px-6 text-sm font-bold border-b-2 transition flex items-center gap-2 ${
+                activeTab === 'catalog'
+                  ? 'border-yellow-500 text-yellow-500'
+                  : 'border-transparent text-zinc-400 hover:text-zinc-200'
+              }`}
+            >
+              <ShoppingBag size={16} />
+              <span>Inventory Catalog</span>
+            </button>
+          </div>
+
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             {/* Catalog Manager */}
-            <div className="lg:col-span-2 space-y-5">
+            <div className={`lg:col-span-2 space-y-5 ${activeTab === 'catalog' ? 'block' : 'hidden lg:block'}`}>
               <div className="rounded-xl p-5" style={{ background: '#1A1A1A', border: '1px solid #2E2E2E' }}>
                 <div className="flex justify-between items-center mb-5">
                   <div>
@@ -624,7 +656,7 @@ export default function SellerDashboard() {
             </div>
 
             {/* Order Pipeline */}
-            <div className="space-y-5">
+            <div className={`space-y-5 ${activeTab === 'orders' ? 'block' : 'hidden lg:block'}`}>
               <div className="rounded-xl p-5" style={{ background: '#1A1A1A', border: '1px solid #2E2E2E' }}>
                 <h3 className="text-lg font-bold mb-1">Live Dispatch Board</h3>
                 <p className="text-sm mb-5" style={{ color: '#8A8A8A' }}>Manage order lifecycles and dispatch states</p>
