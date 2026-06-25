@@ -66,7 +66,14 @@ function SignupForm() {
         router.push('/auth/signin');
       }, 5000);
     } catch (err: any) {
-      setErrorMsg(err.message || 'An error occurred during registration.');
+      console.error('Signup error:', err);
+      let displayMsg = 'An error occurred during registration.';
+      if (err) {
+        if (err.message) displayMsg = err.message;
+        else if (typeof err === 'object') displayMsg = JSON.stringify(err);
+        else displayMsg = String(err);
+      }
+      setErrorMsg(displayMsg);
     } finally {
       setLoading(false);
     }
