@@ -38,6 +38,12 @@ export default function SellerDashboard() {
   const [activeTab, setActiveTab] = useState<'orders' | 'catalog'>('orders');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [balance, setBalance] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return parseFloat(localStorage.getItem('kdlgoods_seller_balance') || '0');
+    }
+    return 0;
+  });
 
   // Form State
   const [showForm, setShowForm] = useState(false);
@@ -103,6 +109,8 @@ export default function SellerDashboard() {
     const checkLocalInterval = setInterval(() => {
       const local = JSON.parse(localStorage.getItem('kdlgoods_orders') || '[]');
       if (local.length > 0) setOrders(local);
+      const localBal = localStorage.getItem('kdlgoods_seller_balance');
+      if (localBal) setBalance(parseFloat(localBal));
     }, 1000);
 
     return () => {
@@ -337,6 +345,8 @@ export default function SellerDashboard() {
           }
           setIsStoreActive(seller.is_active);
           setHasStore(true);
+          setBalance(Number(seller.balance) || 0);
+          localStorage.setItem('kdlgoods_seller_balance', String(seller.balance || '0'));
           localStorage.setItem('kdlgoods_store_active', String(seller.is_active));
           localStorage.setItem('kdlgoods_seller_profile', JSON.stringify({
             id: user.id,
@@ -719,16 +729,17 @@ export default function SellerDashboard() {
           )}
 
           {/* Stats Cards */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 mb-6">
             {[
               { label: 'Active Catalog Items', value: `${products.length} Items`, icon: <ShoppingBag size={28} style={{ color: '#F7D108', opacity: 0.6 }} /> },
               { label: 'Incoming Order Queue', value: `${orders.filter(o => ['placed', 'accepted', 'preparing'].includes(o.status)).length} Orders`, icon: <Clock size={28} style={{ color: '#F59E0B', opacity: 0.6 }} /> },
-              { label: 'SLA Completion Rate', value: '98.4%', icon: <BarChart2 size={28} style={{ color: '#22C55E', opacity: 0.6 }} /> },
+              { label: 'Store Revenue Balance', value: formatINR(balance), icon: <BarChart2 size={28} style={{ color: '#22C55E', opacity: 0.6 }} /> },
+              { label: 'SLA Completion Rate', value: '98.4%', icon: <BarChart2 size={28} style={{ color: '#3B82F6', opacity: 0.6 }} /> },
             ].map((stat, i) => (
               <div key={i} className="p-5 rounded-xl flex items-center justify-between" style={{ background: '#1A1A1A', border: '1px solid #2E2E2E' }}>
                 <div>
-                  <span className="text-sm" style={{ color: '#8A8A8A' }}>{stat.label}</span>
-                  <h2 className="text-2xl font-extrabold mt-1">{stat.value}</h2>
+                  <span className="text-xs font-semibold" style={{ color: '#8A8A8A' }}>{stat.label}</span>
+                  <h2 className="text-xl font-extrabold mt-1 text-zinc-100">{stat.value}</h2>
                 </div>
                 {stat.icon}
               </div>
@@ -972,9 +983,37 @@ export default function SellerDashboard() {
                           </div>
                         </div>
 
-                        <div className="text-sm border-y py-2.5 space-y-1" style={{ borderColor: '#2E2E2E' }}>
-                          <p style={{ color: '#B0B0B0' }}>📍 {order.delivery_address}</p>
-                          <p style={{ color: '#8A8A8A' }} className="text-xs">Total: <span className="font-bold text-white">{formatINR(order.total_amount)}</span></p>
+                        <div className="text-xs border-y py-2.5 space-y-1.5" style={{ borderColor: '#2E2E2E' }}>
+                          <p className="text-sm" style={{ color: '#B0B0B0' }}>📍 {order.delivery_address}</p>
+                          <div className="space-y-1 pl-1 border-l-2 border-zinc-800 text-zinc-400">
+                            <div className="flex justify-between">
+                              <span>Product Price (Listed):</span>
+                              <span className="font-bold text-zinc-100">{formatINR(order.items_total || (order.total_amount - (order.delivery_partner_fee || 25) - (order.handling_charge || 0) - (order.small_cart_fee || 0)))}</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span>Delivery partner fee:</span>
+                              <span className="text-zinc-500">{formatINR(order.delivery_partner_fee || 25)}</span>
+                            </div>
+                            {Number(order.small_cart_fee) > 0 && (
+                              <div className="flex justify-between">
+                                <span>Small cart fee:</span>
+                                <span className="text-zinc-500">{formatINR(order.small_cart_fee)}</span>
+                              </div>
+                            )}
+                            {Number(order.handling_charge) > 0 && (
+                              <div className="flex justify-between">
+                                <span>Handling charge:</span>
+                                <span className="text-zinc-500">{formatINR(order.handling_charge)}</span>
+                              </div>
+                            )}
+                          </div>
+                          <div className="flex justify-between pt-1 border-t border-zinc-900 font-bold text-xs">
+                            <span style={{ color: '#8A8A8A' }}>Customer Paid:</span>
+                            <span className="text-[#F7D108]">{formatINR(order.total_amount)}</span>
+                          </div>
+                          <div className="text-[10px] text-green-500 font-semibold mt-1">
+                            💰 Store Payout: +{formatINR(order.items_total || (order.total_amount - (order.delivery_partner_fee || 25) - (order.handling_charge || 0) - (order.small_cart_fee || 0)))} credited on delivery
+                          </div>
                         </div>
 
                         <div className="pt-1">

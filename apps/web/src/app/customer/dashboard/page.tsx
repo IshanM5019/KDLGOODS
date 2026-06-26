@@ -546,6 +546,11 @@ export default function CustomerDashboard() {
 
   const deliveryPartnerFee = getDeliveryPartnerFee();
 
+  // Blinkit billing details system
+  const smallCartFee = cartTotal < 250 && cartTotal > 0 ? 25 : 0;
+  const handlingCharge = cartTotal > 0 ? 4 : 0;
+  const grandTotal = cartTotal + deliveryPartnerFee + smallCartFee + handlingCharge;
+
   const loadRazorpayScript = () => {
     return new Promise((resolve) => {
       if (typeof window === 'undefined') {
@@ -566,7 +571,6 @@ export default function CustomerDashboard() {
   };
 
   const createOrder = async (razorpayPaymentId?: string) => {
-    const finalAmount = cartTotal + deliveryPartnerFee;
     setCheckingOut(true);
 
     try {
@@ -574,8 +578,11 @@ export default function CustomerDashboard() {
         customer_id: customerId,
         seller_id: cart[0].seller_id,
         status: 'placed',
-        total_amount: finalAmount,
+        total_amount: grandTotal,
         delivery_partner_fee: deliveryPartnerFee,
+        items_total: cartTotal,
+        handling_charge: handlingCharge,
+        small_cart_fee: smallCartFee,
         delivery_address: 'Kirandul, Dantewada District, Chhattisgarh – 494556',
         delivery_location: `POINT(${userCoords.longitude} ${userCoords.latitude})`,
       };
@@ -597,8 +604,11 @@ export default function CustomerDashboard() {
         seller_id: cart[0].seller_id,
         delivery_partner_id: null,
         status: 'placed',
-        total_amount: finalAmount,
+        total_amount: grandTotal,
         delivery_partner_fee: deliveryPartnerFee,
+        items_total: cartTotal,
+        handling_charge: handlingCharge,
+        small_cart_fee: smallCartFee,
         delivery_address: 'Kirandul, Dantewada District, Chhattisgarh – 494556',
         delivery_location: { latitude: userCoords.latitude, longitude: userCoords.longitude },
         created_at: new Date().toISOString(),
@@ -622,11 +632,10 @@ export default function CustomerDashboard() {
 
     try {
       // 1. Create order on Next.js server
-      const finalAmount = cartTotal + deliveryPartnerFee;
       const res = await fetch('/api/checkout/razorpay', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ amount: finalAmount })
+        body: JSON.stringify({ amount: grandTotal })
       });
 
       if (!res.ok) {
@@ -959,15 +968,33 @@ export default function CustomerDashboard() {
                   </div>
 
                   <div className="border-t border-zinc-800 pt-3 mt-3 space-y-2 text-xs">
+                    {activeOrder.items_total && (
+                      <div className="flex justify-between items-center text-zinc-400">
+                        <span>Item Total</span>
+                        <span>{formatINR(activeOrder.items_total)}</span>
+                      </div>
+                    )}
                     {activeOrder.delivery_partner_fee && (
                       <div className="flex justify-between items-center text-zinc-400">
                         <span>Delivery partner fee</span>
                         <span>{formatINR(activeOrder.delivery_partner_fee)}</span>
                       </div>
                     )}
-                    <div className="flex items-center justify-between font-bold">
-                      <span className="text-zinc-500 uppercase">Total Bill (Paid)</span>
-                      <span className="text-base font-extrabold text-white">{formatINR(activeOrder.total_amount)}</span>
+                    {activeOrder.small_cart_fee > 0 && (
+                      <div className="flex justify-between items-center text-zinc-400">
+                        <span>Small cart fee</span>
+                        <span>{formatINR(activeOrder.small_cart_fee)}</span>
+                      </div>
+                    )}
+                    {activeOrder.handling_charge > 0 && (
+                      <div className="flex justify-between items-center text-zinc-400">
+                        <span>Handling charge</span>
+                        <span>{formatINR(activeOrder.handling_charge)}</span>
+                      </div>
+                    )}
+                    <div className="flex items-center justify-between font-bold border-t border-zinc-900 pt-2 mt-1">
+                      <span className="text-zinc-500 uppercase text-[10px]">Total Paid (via Razorpay)</span>
+                      <span className="text-sm font-extrabold text-white">{formatINR(activeOrder.total_amount)}</span>
                     </div>
                   </div>
                 </div>
@@ -1286,9 +1313,29 @@ export default function CustomerDashboard() {
                 <span className="font-semibold text-white">{formatINR(deliveryPartnerFee)}</span>
               </div>
 
+              {smallCartFee > 0 && (
+                <div className="flex justify-between items-center">
+                  <div>
+                    <span className="block text-zinc-200">Small cart fee</span>
+                    <span className="text-[10px] text-zinc-500 block">Applied to orders under ₹250</span>
+                  </div>
+                  <span className="font-semibold text-white">{formatINR(smallCartFee)}</span>
+                </div>
+              )}
+
+              {handlingCharge > 0 && (
+                <div className="flex justify-between items-center">
+                  <div>
+                    <span className="block text-zinc-200">Handling charge</span>
+                    <span className="text-[10px] text-zinc-500 block">Standard quick-commerce handling charge</span>
+                  </div>
+                  <span className="font-semibold text-white">{formatINR(handlingCharge)}</span>
+                </div>
+              )}
+
               <div className="border-t pt-4 flex justify-between items-center" style={{ borderColor: '#2E2E2E' }}>
                 <span className="font-bold text-white text-sm">Grand Total</span>
-                <span className="text-base font-extrabold text-[#F7D108]">{formatINR(cartTotal + deliveryPartnerFee)}</span>
+                <span className="text-base font-extrabold text-[#F7D108]">{formatINR(grandTotal)}</span>
               </div>
             </div>
 
@@ -1309,7 +1356,7 @@ export default function CustomerDashboard() {
                 {checkingOut ? (
                   <><Loader2 className="animate-spin" size={16} /> Initializing payment...</>
                 ) : (
-                  <>Pay {formatINR(cartTotal + deliveryPartnerFee)} via Razorpay</>
+                  <>Pay {formatINR(grandTotal)} via Razorpay</>
                 )}
               </button>
               
@@ -1339,7 +1386,7 @@ export default function CustomerDashboard() {
               </div>
               <div className="text-right">
                 <span className="text-[9px] text-zinc-400 block font-semibold">Amount to Pay</span>
-                <span className="text-xs font-extrabold text-white">{formatINR(cartTotal + deliveryPartnerFee)}</span>
+                <span className="text-xs font-extrabold text-white">{formatINR(grandTotal)}</span>
               </div>
             </div>
 

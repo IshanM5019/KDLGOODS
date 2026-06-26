@@ -177,7 +177,12 @@ export default function DeliveryDashboard() {
     }));
 
   // Earnings & Cashout State
-  const [balance, setBalance] = useState(950);
+  const [balance, setBalance] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return parseFloat(localStorage.getItem('kdlgoods_rider_balance') || '950');
+    }
+    return 950;
+  });
   const [showCashoutModal, setShowCashoutModal] = useState(false);
   const [cashoutProcessing, setCashoutProcessing] = useState(false);
   const [cashoutSuccess, setCashoutSuccess] = useState(false);
@@ -259,9 +264,20 @@ export default function DeliveryDashboard() {
         if (user) {
           setDriverId(user.id);
           currentDriverId = user.id;
+
+          // Fetch balance from delivery_partners
+          const { data: partnerData } = await supabase
+            .from('delivery_partners')
+            .select('balance')
+            .eq('id', user.id)
+            .single();
+          if (partnerData) {
+            setBalance(Number(partnerData.balance) || 0);
+            localStorage.setItem('kdlgoods_rider_balance', String(partnerData.balance || '0'));
+          }
         }
       } catch (err) {
-        console.error('Failed to get delivery partner user:', err);
+        console.error('Failed to get delivery partner user/balance:', err);
       } finally {
         setLoadingUser(false);
       }
@@ -418,6 +434,10 @@ export default function DeliveryDashboard() {
           );
         }
       }
+
+      // Poll local storage balance update
+      const localBal = localStorage.getItem('kdlgoods_rider_balance');
+      if (localBal) setBalance(parseFloat(localBal));
     }, 1000);
 
     return () => {
@@ -552,7 +572,18 @@ export default function DeliveryDashboard() {
 
     // Add completed job payout to earnings balance!
     const jobPayout = Number(activeOrder.delivery_partner_fee) || 25.00; 
-    setBalance(prev => prev + jobPayout);
+
+    // Update local storage for delivery partner balance
+    const currentRiderBal = parseFloat(localStorage.getItem('kdlgoods_rider_balance') || '0');
+    const nextRiderBal = currentRiderBal + jobPayout;
+    localStorage.setItem('kdlgoods_rider_balance', String(nextRiderBal));
+    setBalance(nextRiderBal);
+
+    // Also simulate depositing items_total to seller's local storage balance
+    const sellerDeposit = Number(activeOrder.items_total) || (Number(activeOrder.total_amount) - jobPayout - 4 - (Number(activeOrder.total_amount) < 250 ? 25 : 0));
+    const currentSellerBal = parseFloat(localStorage.getItem('kdlgoods_seller_balance') || '0');
+    localStorage.setItem('kdlgoods_seller_balance', String(currentSellerBal + sellerDeposit));
+
     setTransactions(prev => [
       {
         id: `TXN-${Math.floor(1000 + Math.random() * 9000)}`,
