@@ -92,15 +92,59 @@ interface Transaction {
 
 export default function DeliveryDashboard() {
   const [activeTab, setActiveTab] = useState<'jobs' | 'earnings' | 'support'>('jobs');
-  const [isOnline, setIsOnline] = useState(false);
+  const [isOnline, setIsOnline] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('kdlgoods_driver_online') === 'true';
+    }
+    return false;
+  });
   const [driverId, setDriverId] = useState('driver-uuid-placeholder-123');
   const [loadingUser, setLoadingUser] = useState(true);
-  const [activeOrder, setActiveOrder] = useState<Order | null>(null);
+  const [activeOrder, setActiveOrder] = useState<Order | null>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('kdlgoods_driver_active_order');
+      return saved ? JSON.parse(saved) : null;
+    }
+    return null;
+  });
   const [showAlert, setShowAlert] = useState(false);
-
+ 
   // GPS Simulation State
-  const [coords, setCoords] = useState(DANTEWADA_CENTER);
-  const [simStep, setSimStep] = useState(0);
+  const [simStep, setSimStep] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return parseInt(localStorage.getItem('kdlgoods_driver_sim_step') || '0', 10);
+    }
+    return 0;
+  });
+  const [coords, setCoords] = useState(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('kdlgoods_driver_coords');
+      if (saved) return JSON.parse(saved);
+      const step = parseInt(localStorage.getItem('kdlgoods_driver_sim_step') || '0', 10);
+      return ROUTE_STEPS[step] || DANTEWADA_CENTER;
+    }
+    return DANTEWADA_CENTER;
+  });
+
+  useEffect(() => {
+    localStorage.setItem('kdlgoods_driver_online', String(isOnline));
+  }, [isOnline]);
+
+  useEffect(() => {
+    localStorage.setItem('kdlgoods_driver_sim_step', String(simStep));
+  }, [simStep]);
+
+  useEffect(() => {
+    localStorage.setItem('kdlgoods_driver_coords', JSON.stringify(coords));
+  }, [coords]);
+
+  useEffect(() => {
+    if (activeOrder) {
+      localStorage.setItem('kdlgoods_driver_active_order', JSON.stringify(activeOrder));
+    } else {
+      localStorage.removeItem('kdlgoods_driver_active_order');
+    }
+  }, [activeOrder]);
 
   // Drag-to-Accept Slider State
   const [dragOffset, setDragOffset] = useState(0);
@@ -112,12 +156,25 @@ export default function DeliveryDashboard() {
   const [showChat, setShowChat] = useState(false);
   const [chatPartner, setChatPartner] = useState<'customer' | 'merchant'>('customer');
   const [chatInput, setChatInput] = useState('');
-  const [customerMessages, setCustomerMessages] = useState<ChatMessage[]>([
-    { id: '1', sender: 'partner', text: 'Hi! Please make sure the food is packed hot.', timestamp: '10:05 PM' }
-  ]);
-  const [merchantMessages, setMerchantMessages] = useState<ChatMessage[]>([
-    { id: '1', sender: 'partner', text: 'Order is being prepared. It will take 10 minutes.', timestamp: '10:02 PM' }
-  ]);
+  const [dbMessages, setDbMessages] = useState<any[]>([]);
+
+  const customerMessages = dbMessages
+    .filter(m => (m.sender_role === 'customer' || m.recipient_role === 'customer' || !m.recipient_role))
+    .map(m => ({
+      id: m.id,
+      sender: m.sender_role === 'delivery' ? 'driver' : 'partner',
+      text: m.text,
+      timestamp: new Date(m.created_at || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    }));
+
+  const merchantMessages = dbMessages
+    .filter(m => (m.sender_role === 'seller' || m.recipient_role === 'seller' || !m.recipient_role))
+    .map(m => ({
+      id: m.id,
+      sender: m.sender_role === 'delivery' ? 'driver' : 'partner',
+      text: m.text,
+      timestamp: new Date(m.created_at || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    }));
 
   // Earnings & Cashout State
   const [balance, setBalance] = useState(950);
@@ -146,19 +203,95 @@ export default function DeliveryDashboard() {
     }
 
     const fetchUser = async () => {
+      let currentDriverId = 'driver-uuid-placeholder-123';
       try {
         const { data: { user } } = await supabase.auth.getUser();
         if (user) {
           setDriverId(user.id);
+          currentDriverId = user.id;
         }
       } catch (err) {
         console.error('Failed to get delivery partner user:', err);
       } finally {
         setLoadingUser(false);
       }
+
+      // Sync coordinate to local storage on mount so customer & seller pages can read it immediately
+      const partners = JSON.parse(localStorage.getItem('kdlgoods_delivery_partners') || '{}');
+      partners[currentDriverId] = {
+        id: currentDriverId,
+        is_online: isOnline,
+        location: { latitude: coords.latitude, longitude: coords.longitude },
+        updated_at: new Date().toISOString()
+      };
+      localStorage.setItem('kdlgoods_delivery_partners', JSON.stringify(partners));
+      window.dispatchEvent(new Event('storage'));
     };
     fetchUser();
   }, []);
+
+  // Real-time Chat Sync & Storage Sync for Offline mode
+  useEffect(() => {
+    if (!activeOrder) {
+      setDbMessages([]);
+      return;
+    }
+
+    const loadMessages = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('order_messages')
+          .select('*')
+          .eq('order_id', activeOrder.id)
+          .order('created_at', { ascending: true });
+        if (!error && data) {
+          setDbMessages(data);
+        }
+      } catch (err) {
+        console.error('Failed to load db messages:', err);
+      }
+    };
+    loadMessages();
+
+    // Subscribe to database chat updates
+    const channel = supabase
+      .channel(`order-chat-delivery-${activeOrder.id}`)
+      .on('postgres_changes', { 
+        event: 'INSERT', 
+        schema: 'public', 
+        table: 'order_messages', 
+        filter: `order_id=eq.${activeOrder.id}` 
+      }, (payload) => {
+        setDbMessages(prev => {
+          if (prev.some(m => m.id === payload.new.id)) return prev;
+          return [...prev, payload.new];
+        });
+        playNotificationSound();
+      })
+      .subscribe();
+
+    const syncLocalChats = () => {
+      const localChats = JSON.parse(localStorage.getItem('kdlgoods_chats') || '[]');
+      const filtered = localChats.filter((m: any) => m.order_id === activeOrder.id);
+      setDbMessages(filtered);
+    };
+
+    syncLocalChats();
+    const interval = setInterval(syncLocalChats, 1000);
+
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === 'kdlgoods_chats') {
+        syncLocalChats();
+      }
+    };
+    window.addEventListener('storage', handleStorageChange);
+
+    return () => {
+      supabase.removeChannel(channel);
+      clearInterval(interval);
+      window.removeEventListener('storage', handleStorageChange);
+    };
+  }, [activeOrder?.id]);
 
   useEffect(() => {
     if (loadingUser) return;
@@ -244,23 +377,53 @@ export default function DeliveryDashboard() {
   }, [isOnline, activeOrder, driverId, loadingUser]);
 
   const updateDriverLocation = async () => {
-    const { error } = await supabase
-      .from('delivery_partners')
-      .upsert({
-        id: driverId,
-        is_online: isOnline,
-        location: `POINT(${coords.longitude} ${coords.latitude})`,
-      });
+    try {
+      await supabase
+        .from('delivery_partners')
+        .upsert({
+          id: driverId,
+          is_online: isOnline,
+          location: `POINT(${coords.longitude} ${coords.latitude})`,
+        });
+    } catch (err) {
+      console.warn('Failed to upsert delivery partner to DB:', err);
+    }
+
+    // Always update localStorage for cross-tab local simulation fallback
+    const partners = JSON.parse(localStorage.getItem('kdlgoods_delivery_partners') || '{}');
+    partners[driverId] = {
+      id: driverId,
+      is_online: isOnline,
+      location: { latitude: coords.latitude, longitude: coords.longitude },
+      updated_at: new Date().toISOString()
+    };
+    localStorage.setItem('kdlgoods_delivery_partners', JSON.stringify(partners));
+    window.dispatchEvent(new Event('storage'));
   };
 
   const handleToggleOnline = async () => {
     const nextVal = !isOnline;
     setIsOnline(nextVal);
 
-    await supabase
-      .from('delivery_partners')
-      .update({ is_online: nextVal })
-      .eq('id', driverId);
+    try {
+      await supabase
+        .from('delivery_partners')
+        .update({ is_online: nextVal })
+        .eq('id', driverId);
+    } catch (err) {
+      console.warn('Failed to toggle online status in DB:', err);
+    }
+
+    // Update localStorage for local simulation
+    const partners = JSON.parse(localStorage.getItem('kdlgoods_delivery_partners') || '{}');
+    partners[driverId] = {
+      id: driverId,
+      is_online: nextVal,
+      location: { latitude: coords.latitude, longitude: coords.longitude },
+      updated_at: new Date().toISOString()
+    };
+    localStorage.setItem('kdlgoods_delivery_partners', JSON.stringify(partners));
+    window.dispatchEvent(new Event('storage'));
   };
 
   const handleAcceptRequest = async () => {
@@ -432,50 +595,66 @@ export default function DeliveryDashboard() {
   }, [isDragging]);
 
   // Chat Actions
-  const sendMessage = () => {
-    if (!chatInput.trim()) return;
-    const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    const newMsg: ChatMessage = {
-      id: Math.random().toString(),
-      sender: 'driver',
-      text: chatInput,
-      timestamp
+  const sendMessage = async () => {
+    if (!chatInput.trim() || !activeOrder) return;
+    const text = chatInput.trim();
+    setChatInput('');
+
+    const targetRecipient = chatPartner === 'customer' ? 'customer' : 'seller';
+    const messageId = Math.random().toString();
+    const timestamp = new Date().toISOString();
+
+    const dbPayload = {
+      order_id: activeOrder.id,
+      sender_id: driverId,
+      sender_role: 'delivery',
+      recipient_role: targetRecipient,
+      text,
     };
 
-    if (chatPartner === 'customer') {
-      setCustomerMessages(prev => [...prev, newMsg]);
-      setChatInput('');
+    try {
+      const { data, error } = await supabase
+        .from('order_messages')
+        .insert([dbPayload])
+        .select('*')
+        .single();
+      if (error) throw error;
+    } catch (err) {
+      // LocalStorage fallback for offline/development testing
+      const local = JSON.parse(localStorage.getItem('kdlgoods_chats') || '[]');
+      const mockMsg = {
+        id: messageId,
+        order_id: activeOrder.id,
+        sender_id: driverId,
+        sender_role: 'delivery',
+        recipient_role: targetRecipient,
+        text,
+        created_at: timestamp,
+      };
+      const updated = [...local, mockMsg];
+      localStorage.setItem('kdlgoods_chats', JSON.stringify(updated));
       
-      // Simulate Customer Reply
-      setTimeout(() => {
-        setCustomerMessages(prev => [
-          ...prev,
-          {
-            id: Math.random().toString(),
-            sender: 'partner',
-            text: 'Sounds good, see you soon!',
-            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-          }
-        ]);
-        playNotificationSound();
-      }, 2500);
-    } else {
-      setMerchantMessages(prev => [...prev, newMsg]);
-      setChatInput('');
+      // Dispatch storage event to notify other local hooks/pages
+      window.dispatchEvent(new Event('storage'));
 
-      // Simulate Merchant Reply
+      // Trigger automatic simulation replies when offline
       setTimeout(() => {
-        setMerchantMessages(prev => [
-          ...prev,
-          {
-            id: Math.random().toString(),
-            sender: 'partner',
-            text: 'Sure, we have double packed the food package.',
-            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-          }
-        ]);
+        const localCurrent = JSON.parse(localStorage.getItem('kdlgoods_chats') || '[]');
+        const replyPayload = {
+          id: Math.random().toString(),
+          order_id: activeOrder.id,
+          sender_id: targetRecipient === 'customer' ? activeOrder.customer_id : activeOrder.seller_id,
+          sender_role: targetRecipient,
+          recipient_role: 'delivery',
+          text: targetRecipient === 'customer' 
+            ? "Thank you driver! Safe travels." 
+            : "Perfect! We've readied the package.",
+          created_at: new Date().toISOString(),
+        };
+        localStorage.setItem('kdlgoods_chats', JSON.stringify([...localCurrent, replyPayload]));
+        window.dispatchEvent(new Event('storage'));
         playNotificationSound();
-      }, 2500);
+      }, 3000);
     }
   };
 

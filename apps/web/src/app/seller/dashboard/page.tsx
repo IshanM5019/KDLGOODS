@@ -6,7 +6,7 @@ import { Product, Order, OrderStatus, CreateProductSchema, formatINR, DANTEWADA_
 import {
   Plus, Edit, Trash2, Check, X, Clock, ToggleLeft, ToggleRight,
   Store, ShoppingBag, Loader2, AlertCircle, BarChart2, ShieldAlert,
-  ImagePlus, PackageSearch, InboxIcon, Settings,
+  ImagePlus, PackageSearch, InboxIcon, Settings, MessageSquare, MessageCircle
 } from 'lucide-react';
 
 // ─── Supabase Storage bucket for product images ───────────────────────────────
@@ -65,6 +65,26 @@ export default function SellerDashboard() {
   const [registeringStore, setRegisteringStore] = useState(false);
   const [showStoreSettings, setShowStoreSettings] = useState(false);
 
+  // Chat & Track States
+  const [activeChatOrderId, setActiveChatOrderId] = useState<string | null>(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('kdlgoods_seller_active_chat_order_id');
+    }
+    return null;
+  });
+  const [dbMessages, setDbMessages] = useState<any[]>([]);
+  const [chatPartner, setChatPartner] = useState<'customer' | 'delivery'>('customer');
+  const [chatInput, setChatInput] = useState('');
+  const [driverCoords, setDriverCoords] = useState<any | null>(null);
+
+  useEffect(() => {
+    if (activeChatOrderId) {
+      localStorage.setItem('kdlgoods_seller_active_chat_order_id', activeChatOrderId);
+    } else {
+      localStorage.removeItem('kdlgoods_seller_active_chat_order_id');
+    }
+  }, [activeChatOrderId]);
+
   useEffect(() => {
     fetchInitialData();
 
@@ -83,6 +103,169 @@ export default function SellerDashboard() {
       clearInterval(checkLocalInterval);
     };
   }, []);
+
+  // Chat & Track Synchronization effect
+  useEffect(() => {
+    if (!activeChatOrderId) {
+      setDbMessages([]);
+      setDriverCoords(null);
+      return;
+    }
+
+    const chatChannel = supabase
+      .channel(`seller-chat-${activeChatOrderId}`)
+      .on('postgres_changes', {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'order_messages',
+        filter: `order_id=eq.${activeChatOrderId}`
+      }, (payload) => {
+        setDbMessages(prev => {
+          if (prev.some(m => m.id === payload.new.id)) return prev;
+          return [...prev, payload.new];
+        });
+      })
+      .subscribe();
+
+    const loadMessages = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('order_messages')
+          .select('*')
+          .eq('order_id', activeChatOrderId)
+          .order('created_at', { ascending: true });
+        if (!error && data) {
+          setDbMessages(data);
+        }
+      } catch (err) {
+        console.error(err);
+      }
+    };
+    loadMessages();
+
+    // Check localStorage fallback for offline testing
+    const syncLocalStorage = () => {
+      const localChats = JSON.parse(localStorage.getItem('kdlgoods_chats') || '[]');
+      setDbMessages(localChats.filter((c: any) => c.order_id === activeChatOrderId));
+
+      // Retrieve driver location if rider assigned
+      const targetOrder = orders.find(o => o.id === activeChatOrderId);
+      if (targetOrder?.delivery_partner_id) {
+        const partners = JSON.parse(localStorage.getItem('kdlgoods_delivery_partners') || '{}');
+        const driver = partners[targetOrder.delivery_partner_id];
+        if (driver?.location) {
+          setDriverCoords(driver.location);
+        }
+      }
+    };
+
+    syncLocalStorage();
+    const interval = setInterval(syncLocalStorage, 1000);
+
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === 'kdlgoods_chats' || e.key === 'kdlgoods_delivery_partners') {
+        syncLocalStorage();
+      }
+    };
+    window.addEventListener('storage', handleStorageChange);
+
+    return () => {
+      supabase.removeChannel(chatChannel);
+      clearInterval(interval);
+      window.removeEventListener('storage', handleStorageChange);
+    };
+  }, [activeChatOrderId, orders]);
+
+  // Subscribe to driver coordinates in database mode
+  useEffect(() => {
+    const selectedOrder = orders.find(o => o.id === activeChatOrderId);
+    if (!selectedOrder?.delivery_partner_id) {
+      setDriverCoords(null);
+      return;
+    }
+
+    const loadDriverCoords = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('delivery_partners')
+          .select('location')
+          .eq('id', selectedOrder.delivery_partner_id)
+          .single();
+        if (!error && data?.location?.coordinates) {
+          setDriverCoords({
+            longitude: data.location.coordinates[0],
+            latitude: data.location.coordinates[1]
+          });
+        }
+      } catch (err) {
+        console.error(err);
+      }
+    };
+    loadDriverCoords();
+
+    const channel = supabase
+      .channel(`seller-rider-coords-${selectedOrder.delivery_partner_id}`)
+      .on('postgres_changes', {
+        event: 'UPDATE',
+        schema: 'public',
+        table: 'delivery_partners',
+        filter: `id=eq.${selectedOrder.delivery_partner_id}`
+      }, (payload: any) => {
+        if (payload.new?.location?.coordinates) {
+          setDriverCoords({
+            longitude: payload.new.location.coordinates[0],
+            latitude: payload.new.location.coordinates[1]
+          });
+        }
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [activeChatOrderId, orders]);
+
+  const handleSendMessage = async () => {
+    if (!chatInput.trim() || !activeChatOrderId) return;
+    const text = chatInput.trim();
+    setChatInput('');
+
+    const selectedOrder = orders.find(o => o.id === activeChatOrderId);
+    if (!selectedOrder) return;
+
+    const targetRecipient = chatPartner === 'customer' ? 'customer' : 'delivery';
+    const messageId = Math.random().toString();
+    const timestamp = new Date().toISOString();
+
+    const dbPayload = {
+      order_id: activeChatOrderId,
+      sender_id: sellerId,
+      sender_role: 'seller',
+      recipient_role: targetRecipient,
+      text,
+    };
+
+    try {
+      const { error } = await supabase
+        .from('order_messages')
+        .insert([dbPayload]);
+      if (error) throw error;
+    } catch (err) {
+      // LocalStorage sync fallback
+      const local = JSON.parse(localStorage.getItem('kdlgoods_chats') || '[]');
+      const mockMsg = {
+        id: messageId,
+        order_id: activeChatOrderId,
+        sender_id: sellerId,
+        sender_role: 'seller',
+        recipient_role: targetRecipient,
+        text,
+        created_at: timestamp,
+      };
+      localStorage.setItem('kdlgoods_chats', JSON.stringify([...local, mockMsg]));
+      window.dispatchEvent(new Event('storage'));
+    }
+  };
 
   const fetchInitialData = async () => {
     setLoading(true);
@@ -686,9 +869,20 @@ export default function SellerDashboard() {
                             <span className="text-[10px] font-bold block" style={{ color: '#444' }}>ORDER #{order.id.slice(0, 8).toUpperCase()}</span>
                             <span className="text-xs" style={{ color: '#8A8A8A' }}>{orderDate}</span>
                           </div>
-                          <span className="px-2.5 py-0.5 rounded text-[10px] font-black uppercase" style={{ background: sc.bg, color: sc.text }}>
-                            {order.status.replace('_', ' ')}
-                          </span>
+                          <div className="flex flex-col items-end gap-1.5">
+                            <span className="px-2.5 py-0.5 rounded text-[10px] font-black uppercase" style={{ background: sc.bg, color: sc.text }}>
+                              {order.status.replace('_', ' ')}
+                            </span>
+                            <button
+                              onClick={() => {
+                                setChatPartner('customer');
+                                setActiveChatOrderId(order.id);
+                              }}
+                              className="text-[10px] px-2 py-0.5 rounded border border-zinc-800 bg-[#222] hover:bg-zinc-800 text-yellow-500 font-bold transition flex items-center gap-1"
+                            >
+                              <MessageSquare size={10} /> Chat &amp; Track
+                            </button>
+                          </div>
                         </div>
 
                         <div className="text-sm border-y py-2.5 space-y-1" style={{ borderColor: '#2E2E2E' }}>
@@ -744,6 +938,183 @@ export default function SellerDashboard() {
           </div>
         </>
       )}
+
+      {/* SELLER CHAT & TRACK CONSOLE DRAWER */}
+      {activeChatOrderId && (() => {
+        const selectedOrder = orders.find(o => o.id === activeChatOrderId);
+        if (!selectedOrder) return null;
+        return (
+          <div className="fixed inset-0 bg-black/75 backdrop-blur-sm z-50 flex items-end justify-center">
+            <div className="w-full max-w-2xl bg-[#121212] border-t border-zinc-800 rounded-t-3xl p-5 flex flex-col justify-between max-h-[90vh] animate-slide-up">
+              
+              {/* Drawer Header */}
+              <div className="flex justify-between items-center border-b border-zinc-800 pb-3 mb-3">
+                <div>
+                  <h3 className="text-sm font-extrabold flex items-center gap-1.5 text-yellow-500">
+                    <MessageCircle size={16} /> Live Chat &amp; Track: Order #{selectedOrder.id.slice(0, 8).toUpperCase()}
+                  </h3>
+                  <p className="text-[10px]" style={{ color: '#8A8A8A' }}>Communicate with customer and assigned delivery rider</p>
+                </div>
+                <button 
+                  onClick={() => setActiveChatOrderId(null)}
+                  className="p-1 rounded-full bg-zinc-800 text-zinc-400"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              {/* Grid: Map on Left, Chat on Right */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 flex-1 overflow-hidden my-2 min-h-[300px]">
+                
+                {/* Visual Map */}
+                <div className="p-4 rounded-xl border border-zinc-800 bg-[#1A1A1A] flex flex-col justify-between h-[300px] md:h-full">
+                  <div className="w-full h-44 rounded-lg relative overflow-hidden bg-[#151515] border border-zinc-800">
+                    <svg className="w-full h-full" viewBox="0 0 100 100" preserveAspectRatio="none">
+                      <path d="M 20 65 L 50 35 L 80 65" fill="none" stroke="#222" strokeWidth="2" strokeDasharray="3,3" />
+                      
+                      {/* Customer point */}
+                      <circle cx="80" cy="65" r="3.5" fill="#3B82F6" />
+                      <text x="80" y="73" fill="#3B82F6" fontSize="4" fontWeight="bold" textAnchor="middle">CUSTOMER</text>
+
+                      {/* Store point (You) */}
+                      <circle cx="50" cy="35" r="3.5" fill="#EF4444" />
+                      <text x="50" y="29" fill="#EF4444" fontSize="4" fontWeight="bold" textAnchor="middle">YOUR STORE</text>
+
+                      {/* Driver marker */}
+                      {driverCoords ? (
+                        (() => {
+                          const sellerLat = 18.8492;
+                          const sellerLng = 81.7055;
+                          // Use default customer coordinates for mapping
+                          const custLat = 18.8435;
+                          const custLng = 81.7095;
+                          
+                          let rx = 50, ry = 35;
+                          const totalLat = custLat - sellerLat;
+                          const totalLng = custLng - sellerLng;
+                          
+                          if (totalLat !== 0 && totalLng !== 0) {
+                            const latPct = Math.max(0, Math.min(1, (driverCoords.latitude - sellerLat) / totalLat));
+                            const lngPct = Math.max(0, Math.min(1, (driverCoords.longitude - sellerLng) / totalLng));
+                            const avgPct = (latPct + lngPct) / 2;
+                            
+                            rx = 50 + (80 - 50) * avgPct;
+                            ry = 35 + (65 - 35) * avgPct;
+                          }
+
+                          return (
+                            <g>
+                              <circle cx={rx} cy={ry} r="4" fill="#F7D108" className="animate-pulse" />
+                              <circle cx={rx} cy={ry} r="1.5" fill="#121212" />
+                              <text x={rx} y={ry - 6} fill="#F7D108" fontSize="4" fontWeight="black" textAnchor="middle">RIDER</text>
+                            </g>
+                          );
+                        })()
+                      ) : (
+                        selectedOrder.delivery_partner_id && (
+                          <g>
+                            <circle cx="50" cy="35" r="4" fill="#F7D108" className="animate-pulse" />
+                            <circle cx="50" cy="35" r="1.5" fill="#121212" />
+                            <text x="50" y="24" fill="#F7D108" fontSize="3.5" textAnchor="middle">Rider at Store</text>
+                          </g>
+                        )
+                      )}
+                    </svg>
+                  </div>
+
+                  <div className="text-xs space-y-1 mt-2 text-zinc-400">
+                    <p>📍 Destination: <span className="text-white font-medium">{selectedOrder.delivery_address}</span></p>
+                    <p>🚴 Delivery Partner: {selectedOrder.delivery_partner_id ? (
+                      <span className="text-green-400 font-semibold">Assigned (ID: {selectedOrder.delivery_partner_id.slice(0, 8)})</span>
+                    ) : (
+                      <span className="text-yellow-500 font-semibold">Preparing order / Locating driver</span>
+                    )}</p>
+                  </div>
+                </div>
+
+                {/* Chat Panel */}
+                <div className="flex flex-col justify-between h-[300px] md:h-full p-4 rounded-xl border border-zinc-800 bg-[#1A1A1A]">
+                  <div className="flex gap-2 p-1 bg-zinc-900 border border-zinc-800 rounded-lg mb-3">
+                    <button 
+                      onClick={() => setChatPartner('customer')}
+                      className={`flex-1 py-1 rounded font-bold text-xs transition ${
+                        chatPartner === 'customer' 
+                          ? 'bg-yellow-500 text-black' 
+                          : 'text-zinc-500 hover:text-zinc-300'
+                      }`}
+                    >
+                      Customer Chat
+                    </button>
+                    {selectedOrder.delivery_partner_id && (
+                      <button 
+                        onClick={() => setChatPartner('delivery')}
+                        className={`flex-1 py-1 rounded font-bold text-xs transition ${
+                          chatPartner === 'delivery' 
+                            ? 'bg-yellow-500 text-black' 
+                            : 'text-zinc-500 hover:text-zinc-300'
+                        }`}
+                      >
+                        Rider Chat
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Messages list */}
+                  <div className="flex-1 overflow-y-auto space-y-3 mb-3 pr-1 min-h-[140px]">
+                    {dbMessages.filter(m => 
+                      m.recipient_role === chatPartner || m.sender_role === chatPartner || !m.recipient_role
+                    ).length === 0 ? (
+                      <p className="text-center text-xs text-zinc-600 py-8">No messages in this chat yet.</p>
+                    ) : (
+                      dbMessages
+                        .filter(m => m.recipient_role === chatPartner || m.sender_role === chatPartner || !m.recipient_role)
+                        .map(msg => {
+                          const isMe = msg.sender_role === 'seller';
+                          return (
+                            <div key={msg.id} className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
+                              <div 
+                                className={`p-2 rounded-xl max-w-[85%] text-xs ${
+                                  isMe 
+                                    ? 'bg-yellow-500 text-black rounded-tr-none font-medium' 
+                                    : 'bg-zinc-800 text-zinc-200 rounded-tl-none border border-zinc-700'
+                                }`}
+                              >
+                                <p>{msg.text}</p>
+                                <span className="text-[8px] font-semibold block text-right mt-1 opacity-55">
+                                  {new Date(msg.created_at || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                </span>
+                              </div>
+                            </div>
+                          );
+                        })
+                    )}
+                  </div>
+
+                  {/* Message Input */}
+                  <div className="flex gap-2">
+                    <input 
+                      type="text" 
+                      className="input flex-1 py-1.5 text-xs bg-zinc-900 border-zinc-800" 
+                      placeholder={`Message ${chatPartner === 'customer' ? 'Customer' : 'Rider'}...`}
+                      value={chatInput}
+                      onChange={e => setChatInput(e.target.value)}
+                      onKeyDown={e => e.key === 'Enter' && handleSendMessage()}
+                    />
+                    <button 
+                      onClick={handleSendMessage}
+                      className="px-3 rounded-lg bg-yellow-500 hover:bg-yellow-400 text-black font-bold text-xs"
+                    >
+                      Send
+                    </button>
+                  </div>
+                </div>
+
+              </div>
+
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }

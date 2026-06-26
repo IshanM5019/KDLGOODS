@@ -14,6 +14,7 @@ import {
 import {
   ShoppingBag, MapPin, Zap, AlertTriangle, ShieldCheck,
   Search, ChevronRight, Navigation, Loader2, Plus, Minus, X, Check, PackageSearch, Store,
+  MessageSquare, MessageCircle
 } from 'lucide-react';
 
 
@@ -44,10 +45,26 @@ export default function CustomerDashboard() {
   const [error, setError] = useState<string | null>(null);
   const [customerId, setCustomerId] = useState<string>('00000000-0000-0000-0000-000000000000');
 
-  // Default to Dantewada Kirandul operational centre
-  const [userCoords, setUserCoords] = useState<LatLng>(DANTEWADA_CENTER);
-  const [latInput, setLatInput] = useState(String(DANTEWADA_CENTER.latitude));
-  const [lngInput, setLngInput] = useState(String(DANTEWADA_CENTER.longitude));
+  // Default to Dantewada Kirandul operational centre or cached coordinates
+  const [userCoords, setUserCoords] = useState<LatLng>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('kdlgoods_customer_user_coords');
+      return saved ? JSON.parse(saved) : DANTEWADA_CENTER;
+    }
+    return DANTEWADA_CENTER;
+  });
+  const [latInput, setLatInput] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('kdlgoods_customer_lat_input') || String(DANTEWADA_CENTER.latitude);
+    }
+    return String(DANTEWADA_CENTER.latitude);
+  });
+  const [lngInput, setLngInput] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('kdlgoods_customer_lng_input') || String(DANTEWADA_CENTER.longitude);
+    }
+    return String(DANTEWADA_CENTER.longitude);
+  });
   const [searchQuery, setSearchQuery] = useState('');
   const [showLocationWarning, setShowLocationWarning] = useState(false);
 
@@ -55,12 +72,25 @@ export default function CustomerDashboard() {
   const [cart, setCart] = useState<CartItem[]>([]);
   const [checkingOut, setCheckingOut] = useState(false);
   const [checkoutSuccess, setCheckoutSuccess] = useState(false);
-  const [activeOrderTrackingId, setActiveOrderTrackingId] = useState<string | null>(null);
+  const [activeOrderTrackingId, setActiveOrderTrackingId] = useState<string | null>(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('kdlgoods_customer_active_tracking_id');
+    }
+    return null;
+  });
 
   // Seller product view
   const [selectedSeller, setSelectedSeller] = useState<LocalSeller | null>(null);
   const [sellerProducts, setSellerProducts] = useState<any[]>([]);
   const [loadingProducts, setLoadingProducts] = useState(false);
+
+  // Real-time tracking and chat states
+  const [activeOrder, setActiveOrder] = useState<any | null>(null);
+  const [driverCoords, setDriverCoords] = useState<LatLng | null>(null);
+  const [dbMessages, setDbMessages] = useState<any[]>([]);
+  const [showChat, setShowChat] = useState(false);
+  const [chatPartner, setChatPartner] = useState<'seller' | 'delivery'>('seller');
+  const [chatInput, setChatInput] = useState('');
 
   const detectLocation = () => {
     if (typeof window !== 'undefined' && 'navigator' in window && navigator.geolocation) {
@@ -76,12 +106,19 @@ export default function CustomerDashboard() {
             setUserCoords(DANTEWADA_CENTER);
             setLatInput(String(DANTEWADA_CENTER.latitude));
             setLngInput(String(DANTEWADA_CENTER.longitude));
+            localStorage.setItem('kdlgoods_customer_user_coords', JSON.stringify(DANTEWADA_CENTER));
+            localStorage.setItem('kdlgoods_customer_lat_input', String(DANTEWADA_CENTER.latitude));
+            localStorage.setItem('kdlgoods_customer_lng_input', String(DANTEWADA_CENTER.longitude));
           } else {
             // Inside operational zone: set coords
             setShowLocationWarning(false);
-            setUserCoords({ latitude: lat, longitude: lng });
+            const newCoords = { latitude: lat, longitude: lng };
+            setUserCoords(newCoords);
             setLatInput(String(lat));
             setLngInput(String(lng));
+            localStorage.setItem('kdlgoods_customer_user_coords', JSON.stringify(newCoords));
+            localStorage.setItem('kdlgoods_customer_lat_input', String(lat));
+            localStorage.setItem('kdlgoods_customer_lng_input', String(lng));
           }
         },
         (err) => {
@@ -91,12 +128,33 @@ export default function CustomerDashboard() {
     }
   };
 
+  // Auto-detect existing active database orders for the customer
+  useEffect(() => {
+    if (activeOrderTrackingId) {
+      localStorage.setItem('kdlgoods_customer_active_tracking_id', activeOrderTrackingId);
+    } else {
+      localStorage.removeItem('kdlgoods_customer_active_tracking_id');
+    }
+  }, [activeOrderTrackingId]);
+
   useEffect(() => {
     const fetchUser = async () => {
       try {
         const { data: { user } } = await supabase.auth.getUser();
         if (user) {
           setCustomerId(user.id);
+          // Auto-detect existing active database orders for the customer
+          const { data, error } = await supabase
+            .from('orders')
+            .select('id')
+            .eq('customer_id', user.id)
+            .not('status', 'in', '("delivered","cancelled")')
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+          if (data) {
+            setActiveOrderTrackingId(data.id);
+          }
         }
       } catch (err) {
         console.error('Failed to fetch user:', err);
@@ -105,6 +163,232 @@ export default function CustomerDashboard() {
     fetchUser();
     detectLocation();
   }, []);
+
+  // Poll LocalStorage offline fallback active order check
+  useEffect(() => {
+    const checkLocalActiveOrder = () => {
+      if (activeOrderTrackingId) return;
+      const local = JSON.parse(localStorage.getItem('kdlgoods_orders') || '[]');
+      const active = local.find((o: any) => !['delivered', 'cancelled'].includes(o.status));
+      if (active) {
+        setActiveOrderTrackingId(active.id);
+      }
+    };
+    checkLocalActiveOrder();
+    const interval = setInterval(checkLocalActiveOrder, 2000);
+    return () => clearInterval(interval);
+  }, [activeOrderTrackingId]);
+
+  // Order status, location tracking, and chat synchronization
+  useEffect(() => {
+    if (!activeOrderTrackingId) {
+      setActiveOrder(null);
+      setDriverCoords(null);
+      return;
+    }
+
+    const fetchOrder = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('orders')
+          .select('*, sellers(store_name, location)')
+          .eq('id', activeOrderTrackingId)
+          .single();
+        if (!error && data) {
+          setActiveOrder(data);
+        }
+      } catch (err) {
+        console.error(err);
+      }
+    };
+    fetchOrder();
+
+    // Subscribe to order status changes
+    const orderChannel = supabase
+      .channel(`customer-order-tracking-${activeOrderTrackingId}`)
+      .on('postgres_changes', {
+        event: 'UPDATE',
+        schema: 'public',
+        table: 'orders',
+        filter: `id=eq.${activeOrderTrackingId}`
+      }, (payload) => {
+        setActiveOrder(payload.new);
+      })
+      .subscribe();
+
+    // Subscribe to chats
+    const chatChannel = supabase
+      .channel(`customer-order-chat-${activeOrderTrackingId}`)
+      .on('postgres_changes', {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'order_messages',
+        filter: `order_id=eq.${activeOrderTrackingId}`
+      }, (payload) => {
+        setDbMessages(prev => {
+          if (prev.some(m => m.id === payload.new.id)) return prev;
+          return [...prev, payload.new];
+        });
+      })
+      .subscribe();
+
+    // Load initial messages
+    const loadMessages = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('order_messages')
+          .select('*')
+          .eq('order_id', activeOrderTrackingId)
+          .order('created_at', { ascending: true });
+        if (!error && data) {
+          setDbMessages(data);
+        }
+      } catch (err) {
+        console.error(err);
+      }
+    };
+    loadMessages();
+
+    // Sync helpers for localStorage fallback
+    const syncLocalStorage = () => {
+      // Sync order details
+      const local = JSON.parse(localStorage.getItem('kdlgoods_orders') || '[]');
+      const currentOrder = local.find((o: any) => o.id === activeOrderTrackingId);
+      if (currentOrder) {
+        setActiveOrder(currentOrder);
+      }
+
+      // Sync chats
+      const localChats = JSON.parse(localStorage.getItem('kdlgoods_chats') || '[]');
+      setDbMessages(localChats.filter((c: any) => c.order_id === activeOrderTrackingId));
+    };
+
+    syncLocalStorage();
+    const interval = setInterval(syncLocalStorage, 1000);
+
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === 'kdlgoods_orders' || e.key === 'kdlgoods_chats') {
+        syncLocalStorage();
+      }
+    };
+    window.addEventListener('storage', handleStorageChange);
+
+    return () => {
+      supabase.removeChannel(orderChannel);
+      supabase.removeChannel(chatChannel);
+      clearInterval(interval);
+      window.removeEventListener('storage', handleStorageChange);
+    };
+  }, [activeOrderTrackingId]);
+
+  // Subscribe to driver coordinates
+  useEffect(() => {
+    if (!activeOrder?.delivery_partner_id) {
+      setDriverCoords(null);
+      return;
+    }
+
+    const loadDriverCoords = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('delivery_partners')
+          .select('location')
+          .eq('id', activeOrder.delivery_partner_id)
+          .single();
+        if (!error && data?.location?.coordinates) {
+          setDriverCoords({
+            longitude: data.location.coordinates[0],
+            latitude: data.location.coordinates[1]
+          });
+        }
+      } catch (err) {
+        console.error(err);
+      }
+    };
+    loadDriverCoords();
+
+    // Realtime driver coordinates subscription
+    const partnerChannel = supabase
+      .channel(`customer-rider-location-${activeOrder.delivery_partner_id}`)
+      .on('postgres_changes', {
+        event: 'UPDATE',
+        schema: 'public',
+        table: 'delivery_partners',
+        filter: `id=eq.${activeOrder.delivery_partner_id}`
+      }, (payload: any) => {
+        if (payload.new?.location?.coordinates) {
+          setDriverCoords({
+            longitude: payload.new.location.coordinates[0],
+            latitude: payload.new.location.coordinates[1]
+          });
+        }
+      })
+      .subscribe();
+
+    // LocalStorage fallback
+    const syncLocalLocation = () => {
+      const partners = JSON.parse(localStorage.getItem('kdlgoods_delivery_partners') || '{}');
+      const partner = partners[activeOrder.delivery_partner_id];
+      if (partner?.location) {
+        setDriverCoords(partner.location);
+      }
+    };
+
+    syncLocalLocation();
+    const interval = setInterval(syncLocalLocation, 1000);
+
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === 'kdlgoods_delivery_partners') {
+        syncLocalLocation();
+      }
+    };
+    window.addEventListener('storage', handleStorageChange);
+
+    return () => {
+      supabase.removeChannel(partnerChannel);
+      clearInterval(interval);
+      window.removeEventListener('storage', handleStorageChange);
+    };
+  }, [activeOrder?.delivery_partner_id]);
+
+  const handleSendMessage = async () => {
+    if (!chatInput.trim() || !activeOrder) return;
+    const text = chatInput.trim();
+    setChatInput('');
+
+    const targetRecipient = chatPartner === 'seller' ? 'seller' : 'delivery';
+    const messageId = Math.random().toString();
+    const timestamp = new Date().toISOString();
+
+    const dbPayload = {
+      order_id: activeOrder.id,
+      sender_id: customerId,
+      sender_role: 'customer',
+      recipient_role: targetRecipient,
+      text,
+    };
+
+    try {
+      const { error } = await supabase
+        .from('order_messages')
+        .insert([dbPayload]);
+      if (error) throw error;
+    } catch (err) {
+      // LocalStorage fallback
+      const local = JSON.parse(localStorage.getItem('kdlgoods_chats') || '[]');
+      const mockMsg = {
+        id: messageId,
+        order_id: activeOrder.id,
+        sender_id: customerId,
+        sender_role: 'customer',
+        recipient_role: targetRecipient,
+        text,
+        created_at: timestamp,
+      };
+      localStorage.setItem('kdlgoods_chats', JSON.stringify([...local, mockMsg]));
+      window.dispatchEvent(new Event('storage'));
+    }
+  };
 
   useEffect(() => { fetchSellers(); }, [userCoords]);
 
@@ -169,8 +453,12 @@ export default function CustomerDashboard() {
     const lat = parseFloat(latInput);
     const lng = parseFloat(lngInput);
     if (!isNaN(lat) && !isNaN(lng)) {
-      setUserCoords({ latitude: lat, longitude: lng });
+      const newCoords = { latitude: lat, longitude: lng };
+      setUserCoords(newCoords);
       setSelectedSeller(null);
+      localStorage.setItem('kdlgoods_customer_user_coords', JSON.stringify(newCoords));
+      localStorage.setItem('kdlgoods_customer_lat_input', String(lat));
+      localStorage.setItem('kdlgoods_customer_lng_input', String(lng));
     }
   };
 
@@ -316,6 +604,257 @@ export default function CustomerDashboard() {
 
         {/* Right Column: Stores & Products */}
         <div className="lg:col-span-3 space-y-6">
+
+          {/* Active Order tracking interface */}
+          {activeOrder && (
+            <div className="rounded-xl p-5 mb-6 animate-fade-in" style={{ background: '#1A1A1A', border: '1px solid #2E2E2E' }}>
+              <div className="flex justify-between items-center border-b pb-4 mb-5" style={{ borderColor: '#2E2E2E' }}>
+                <div>
+                  <span className="text-[10px] font-black uppercase text-yellow-500">LIVE SHIPMENT HUD</span>
+                  <h2 className="text-xl font-bold flex items-center gap-2">
+                    Order #{activeOrder.id.slice(0, 8).toUpperCase()}
+                  </h2>
+                  <p className="text-xs mt-0.5" style={{ color: '#8A8A8A' }}>
+                    Status: <span className="text-white font-semibold capitalize">{activeOrder.status.replace('_', ' ')}</span>
+                  </p>
+                </div>
+                <div className="flex gap-2">
+                  <button 
+                    onClick={() => {
+                      setShowChat(!showChat);
+                      // Auto-switch partner to delivery if assigned and store is prepared
+                      if (activeOrder.delivery_partner_id && ['awaiting_pickup', 'out_for_delivery'].includes(activeOrder.status)) {
+                        setChatPartner('delivery');
+                      } else {
+                        setChatPartner('seller');
+                      }
+                    }}
+                    className="px-3.5 py-2 rounded-lg font-bold text-xs flex items-center gap-1.5 transition"
+                    style={{ background: '#F7D108', color: '#121212' }}
+                  >
+                    <MessageSquare size={14} /> {showChat ? 'Hide Chat' : 'Chat Desk'}
+                  </button>
+                  {/* Cancel/Reset simulation fallback */}
+                  {['delivered', 'cancelled'].includes(activeOrder.status) && (
+                    <button 
+                      onClick={() => {
+                        setActiveOrderTrackingId(null);
+                        setActiveOrder(null);
+                        setCheckoutSuccess(false);
+                      }} 
+                      className="px-3 py-2 rounded-lg bg-zinc-800 text-zinc-300 text-xs font-bold"
+                    >
+                      Clear Board
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Progress Bar */}
+              <div className="mb-6">
+                <div className="flex justify-between text-[10px] font-bold text-zinc-500 uppercase mb-2">
+                  <span>Placed</span>
+                  <span>Preparing</span>
+                  <span>Picked Up</span>
+                  <span>Delivered</span>
+                </div>
+                <div className="w-full h-2.5 rounded-full bg-zinc-800 relative overflow-hidden">
+                  {(() => {
+                    const statusProgress: Record<string, string> = {
+                      placed: 'w-[10%]',
+                      accepted: 'w-[25%]',
+                      preparing: 'w-[50%]',
+                      awaiting_pickup: 'w-[75%]',
+                      out_for_delivery: 'w-[90%]',
+                      delivered: 'w-[100%]',
+                      cancelled: 'w-[0%]'
+                    };
+                    const color = activeOrder.status === 'cancelled' ? 'bg-red-500' : 'bg-yellow-500';
+                    return <div className={`h-full ${statusProgress[activeOrder.status] || 'w-0'} ${color} transition-all duration-500`} />;
+                  })()}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                
+                {/* SVG Visual Map Tracker */}
+                <div className="w-full h-56 rounded-xl relative overflow-hidden border border-zinc-800 bg-[#151515]">
+                  <svg className="w-full h-full" viewBox="0 0 100 100" preserveAspectRatio="none">
+                    {/* Simulated street path */}
+                    <path d="M 20 65 L 50 35 L 80 65" fill="none" stroke="#222" strokeWidth="2.5" strokeDasharray="3,3" />
+                    <path d="M 20 65 L 50 35" fill="none" stroke="#3B82F6" strokeWidth="1.5" strokeOpacity="0.4" />
+                    <path d="M 50 35 L 80 65" fill="none" stroke="#EF4444" strokeWidth="1.5" strokeOpacity="0.4" />
+
+                    {/* Customer point (Kirandul User location) */}
+                    <circle cx="80" cy="65" r="4" fill="#3B82F6" />
+                    <text x="80" y="74" fill="#3B82F6" fontSize="4.5" fontWeight="bold" textAnchor="middle">YOUR HOME</text>
+
+                    {/* Seller point (Store coordinates) */}
+                    <circle cx="50" cy="35" r="4" fill="#EF4444" />
+                    <text x="50" y="28" fill="#EF4444" fontSize="4.5" fontWeight="bold" textAnchor="middle">STORE</text>
+
+                    {/* Driver marker (Updates dynamically) */}
+                    {driverCoords ? (
+                      (() => {
+                        // Coordinates simulation to SVG conversion logic
+                        // Store: (50, 35). Customer: (80, 65).
+                        // Let's compute actual driver coordinates mapping:
+                        const sellerLat = 18.8492;
+                        const sellerLng = 81.7055;
+                        const custLat = userCoords.latitude;
+                        const custLng = userCoords.longitude;
+                        
+                        let rx = 50, ry = 35;
+                        const totalLat = custLat - sellerLat;
+                        const totalLng = custLng - sellerLng;
+                        
+                        if (totalLat !== 0 && totalLng !== 0) {
+                          const latPct = Math.max(0, Math.min(1, (driverCoords.latitude - sellerLat) / totalLat));
+                          const lngPct = Math.max(0, Math.min(1, (driverCoords.longitude - sellerLng) / totalLng));
+                          const avgPct = (latPct + lngPct) / 2;
+                          
+                          rx = 50 + (80 - 50) * avgPct;
+                          ry = 35 + (65 - 35) * avgPct;
+                        }
+
+                        return (
+                          <g>
+                            <circle cx={rx} cy={ry} r="4.5" fill="#F7D108" className="animate-pulse" />
+                            <circle cx={rx} cy={ry} r="2" fill="#121212" />
+                            <text x={rx} y={ry - 7} fill="#F7D108" fontSize="4.5" fontWeight="black" textAnchor="middle">RIDER</text>
+                          </g>
+                        );
+                      })()
+                    ) : (
+                      activeOrder.delivery_partner_id && (
+                        <g>
+                          <circle cx="50" cy="35" r="4.5" fill="#F7D108" className="animate-pulse" />
+                          <circle cx="50" cy="35" r="2" fill="#121212" />
+                          <text x="50" y="22" fill="#F7D108" fontSize="4" textAnchor="middle">Rider at Store</text>
+                        </g>
+                      )
+                    )}
+                  </svg>
+
+                  {/* Floating Coordinates overlay */}
+                  <div className="absolute bottom-2 left-2 px-2.5 py-1 rounded bg-black/85 backdrop-blur-md text-[8px] font-mono border border-zinc-800">
+                    {driverCoords 
+                      ? `Rider GPS: ${driverCoords.latitude.toFixed(5)}°N, ${driverCoords.longitude.toFixed(5)}°E` 
+                      : 'Rider: Offline / Awaiting Assignment'}
+                  </div>
+                </div>
+
+                {/* Details HUD */}
+                <div className="p-4 rounded-xl flex flex-col justify-between" style={{ background: '#222222', border: '1px solid #2E2E2E' }}>
+                  <div className="space-y-3.5 text-xs">
+                    <div>
+                      <strong className="block text-zinc-500 font-extrabold uppercase">Delivery Destination</strong>
+                      <p className="text-zinc-200 font-semibold mt-0.5">{activeOrder.delivery_address}</p>
+                    </div>
+                    <div className="border-t border-zinc-800 pt-3">
+                      <strong className="block text-zinc-500 font-extrabold uppercase">Rider Assignment</strong>
+                      {activeOrder.delivery_partner_id ? (
+                        <div className="flex items-center gap-2 mt-1">
+                          <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
+                          <p className="text-zinc-200 font-medium">Assigned Rider (ID: <span className="font-mono text-zinc-400">{activeOrder.delivery_partner_id.slice(0, 8)}</span>)</p>
+                        </div>
+                      ) : (
+                        <p className="text-yellow-500 font-semibold mt-1 flex items-center gap-1">
+                          <Loader2 size={12} className="animate-spin" /> Store preparing order. Locating nearest partner...
+                        </p>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="border-t border-zinc-800 pt-3 mt-3 flex items-center justify-between text-xs">
+                    <span className="text-zinc-500 font-bold uppercase">Total Bill</span>
+                    <span className="text-base font-extrabold text-white">{formatINR(activeOrder.total_amount)}</span>
+                  </div>
+                </div>
+
+              </div>
+
+              {/* Chat Desk Drawer */}
+              {showChat && (
+                <div className="mt-5 p-4 rounded-xl space-y-4 border border-zinc-800" style={{ background: '#222222' }}>
+                  <div className="flex justify-between items-center border-b border-zinc-800 pb-3">
+                    <h3 className="text-xs font-bold flex items-center gap-1.5 text-yellow-500">
+                      <MessageCircle size={14} /> Order Communications Desk
+                    </h3>
+                    <div className="flex gap-2">
+                      <button 
+                        onClick={() => setChatPartner('seller')}
+                        className={`px-3 py-1 rounded font-bold text-[10px] transition ${
+                          chatPartner === 'seller' ? 'bg-yellow-500 text-black' : 'bg-zinc-800 text-zinc-400'
+                        }`}
+                      >
+                        Chat Store
+                      </button>
+                      {activeOrder.delivery_partner_id && (
+                        <button 
+                          onClick={() => setChatPartner('delivery')}
+                          className={`px-3 py-1 rounded font-bold text-[10px] transition ${
+                            chatPartner === 'delivery' ? 'bg-yellow-500 text-black' : 'bg-zinc-800 text-zinc-400'
+                          }`}
+                        >
+                          Chat Rider
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Messages rendering */}
+                  <div className="space-y-3 max-h-48 overflow-y-auto pr-1">
+                    {dbMessages.filter(m => 
+                      m.recipient_role === chatPartner || m.sender_role === chatPartner || !m.recipient_role
+                    ).length === 0 ? (
+                      <p className="text-center text-xs text-zinc-600 py-6">No messages in this channel yet.</p>
+                    ) : (
+                      dbMessages
+                        .filter(m => m.recipient_role === chatPartner || m.sender_role === chatPartner || !m.recipient_role)
+                        .map(msg => {
+                          const isMe = msg.sender_role === 'customer';
+                          return (
+                            <div key={msg.id} className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
+                              <div 
+                                className={`p-2.5 rounded-xl max-w-[85%] text-xs ${
+                                  isMe 
+                                    ? 'bg-yellow-500 text-black rounded-tr-none font-medium' 
+                                    : 'bg-zinc-800 text-zinc-200 rounded-tl-none border border-zinc-700'
+                                }`}
+                              >
+                                <p>{msg.text}</p>
+                                <span className="text-[8px] font-semibold block text-right mt-1 opacity-55">
+                                  {new Date(msg.created_at || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                </span>
+                              </div>
+                            </div>
+                          );
+                        })
+                    )}
+                  </div>
+
+                  {/* Send Input */}
+                  <div className="flex gap-2 border-t border-zinc-800 pt-3">
+                    <input 
+                      type="text" 
+                      className="input flex-1 py-1.5 text-xs bg-zinc-900 border-zinc-800" 
+                      placeholder={`Type message to ${chatPartner === 'seller' ? 'store' : 'rider'}...`}
+                      value={chatInput}
+                      onChange={e => setChatInput(e.target.value)}
+                      onKeyDown={e => e.key === 'Enter' && handleSendMessage()}
+                    />
+                    <button 
+                      onClick={handleSendMessage}
+                      className="px-3 py-1.5 rounded-lg bg-yellow-500 hover:bg-yellow-400 text-black font-bold text-xs"
+                    >
+                      Send
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Checkout success banner */}
           {checkoutSuccess && (
