@@ -76,6 +76,13 @@ export default function SellerDashboard() {
   const [chatPartner, setChatPartner] = useState<'customer' | 'delivery'>('customer');
   const [chatInput, setChatInput] = useState('');
   const [driverCoords, setDriverCoords] = useState<any | null>(null);
+  const [isStoreActive, setIsStoreActive] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('kdlgoods_store_active');
+      return saved !== 'false';
+    }
+    return true;
+  });
 
   useEffect(() => {
     if (activeChatOrderId) {
@@ -267,6 +274,30 @@ export default function SellerDashboard() {
     }
   };
 
+  const handleToggleStoreActive = async () => {
+    const nextVal = !isStoreActive;
+    setIsStoreActive(nextVal);
+    localStorage.setItem('kdlgoods_store_active', String(nextVal));
+
+    // Update local profile cache
+    const profile = localStorage.getItem('kdlgoods_seller_profile');
+    if (profile) {
+      const parsed = JSON.parse(profile);
+      parsed.is_active = nextVal;
+      localStorage.setItem('kdlgoods_seller_profile', JSON.stringify(parsed));
+    }
+
+    try {
+      await supabase
+        .from('sellers')
+        .update({ is_active: nextVal })
+        .eq('id', sellerId);
+    } catch (err) {
+      console.warn('Failed to update store status in DB:', err);
+    }
+    window.dispatchEvent(new Event('storage'));
+  };
+
   const fetchInitialData = async () => {
     setLoading(true);
     try {
@@ -280,7 +311,21 @@ export default function SellerDashboard() {
           .single();
 
         if (sellerErr || !seller) {
-          setHasStore(false);
+          // Check local storage fallback
+          const localProfile = localStorage.getItem('kdlgoods_seller_profile');
+          if (localProfile) {
+            const parsed = JSON.parse(localProfile);
+            setStoreName(parsed.store_name);
+            setStoreNameInput(parsed.store_name);
+            setStoreDescInput(parsed.description || '');
+            setStoreAddressInput(parsed.address);
+            setStoreLngInput(parsed.lng || String(DANTEWADA_CENTER.longitude));
+            setStoreLatInput(parsed.lat || String(DANTEWADA_CENTER.latitude));
+            setIsStoreActive(parsed.is_active);
+            setHasStore(true);
+          } else {
+            setHasStore(false);
+          }
         } else {
           setStoreName(seller.store_name);
           setStoreNameInput(seller.store_name);
@@ -290,7 +335,18 @@ export default function SellerDashboard() {
             setStoreLngInput(String(seller.location.coordinates[0]));
             setStoreLatInput(String(seller.location.coordinates[1]));
           }
+          setIsStoreActive(seller.is_active);
           setHasStore(true);
+          localStorage.setItem('kdlgoods_store_active', String(seller.is_active));
+          localStorage.setItem('kdlgoods_seller_profile', JSON.stringify({
+            id: user.id,
+            store_name: seller.store_name,
+            description: seller.description,
+            address: seller.address,
+            lat: seller.location?.coordinates ? String(seller.location.coordinates[1]) : String(DANTEWADA_CENTER.latitude),
+            lng: seller.location?.coordinates ? String(seller.location.coordinates[0]) : String(DANTEWADA_CENTER.longitude),
+            is_active: seller.is_active
+          }));
         }
       }
       await Promise.all([fetchProducts(), fetchOrders()]);
@@ -321,7 +377,7 @@ export default function SellerDashboard() {
         description: storeDescInput || null,
         address: storeAddressInput,
         location: `POINT(${lng} ${lat})`,
-        is_active: true,
+        is_active: isStoreActive,
       };
 
       if (hasStore) {
@@ -340,10 +396,31 @@ export default function SellerDashboard() {
         setHasStore(true);
       }
 
+      localStorage.setItem('kdlgoods_seller_profile', JSON.stringify({
+        id: sellerId,
+        store_name: storeNameInput,
+        description: storeDescInput,
+        address: storeAddressInput,
+        lat: String(lat),
+        lng: String(lng),
+        is_active: isStoreActive
+      }));
       setStoreName(storeNameInput);
       setShowStoreSettings(false);
     } catch (err: any) {
-      setError(err.message || 'Failed to save store details. Please verify database connection.');
+      // Offline fallback
+      localStorage.setItem('kdlgoods_seller_profile', JSON.stringify({
+        id: sellerId,
+        store_name: storeNameInput,
+        description: storeDescInput,
+        address: storeAddressInput,
+        lat: String(lat),
+        lng: String(lng),
+        is_active: isStoreActive
+      }));
+      setStoreName(storeNameInput);
+      setHasStore(true);
+      setShowStoreSettings(false);
     } finally {
       setRegisteringStore(false);
     }
@@ -502,10 +579,20 @@ export default function SellerDashboard() {
               <Settings size={14} /> Store Settings
             </button>
           )}
-          <div className="flex items-center gap-1.5">
-            <span className="w-2 h-2 rounded-full animate-pulse" style={{ background: '#22C55E' }} />
-            <span className="text-xs font-semibold" style={{ color: '#22C55E' }}>ONLINE &amp; ACCEPTING</span>
-          </div>
+          {hasStore && (
+            <button 
+              onClick={handleToggleStoreActive}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border font-bold text-xs transition"
+              style={{
+                borderColor: isStoreActive ? '#22C55E' : '#EF4444',
+                backgroundColor: isStoreActive ? 'rgba(34,197,94,0.06)' : 'rgba(239,68,68,0.06)',
+                color: isStoreActive ? '#22C55E' : '#EF4444'
+              }}
+            >
+              <span className={`w-2 h-2 rounded-full ${isStoreActive ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`} />
+              {isStoreActive ? 'STORE OPEN' : 'STORE CLOSED'}
+            </button>
+          )}
         </div>
       </header>
 

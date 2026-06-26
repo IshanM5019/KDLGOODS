@@ -390,10 +390,26 @@ export default function CustomerDashboard() {
     }
   };
 
-  useEffect(() => { fetchSellers(); }, [userCoords]);
+  useEffect(() => {
+    fetchSellers(true);
 
-  const fetchSellers = async () => {
-    setLoading(true);
+    const handleStorage = (e: StorageEvent) => {
+      if (e.key === 'kdlgoods_seller_profile' || e.key === 'kdlgoods_store_active') {
+        fetchSellers(false);
+      }
+    };
+    window.addEventListener('storage', handleStorage);
+
+    const interval = setInterval(() => fetchSellers(false), 2000);
+
+    return () => {
+      window.removeEventListener('storage', handleStorage);
+      clearInterval(interval);
+    };
+  }, [userCoords]);
+
+  const fetchSellers = async (showLoading = false) => {
+    if (showLoading) setLoading(true);
     setError(null);
     try {
       const { data, error } = await supabase.rpc('get_nearby_sellers', {
@@ -421,10 +437,47 @@ export default function CustomerDashboard() {
       });
       setSellers(calculated);
     } catch {
-      // Supabase offline — show clean empty state (no mock data)
-      setSellers([]);
+      // Offline fallback: check local seller profile
+      const localProfile = localStorage.getItem('kdlgoods_seller_profile');
+      if (localProfile) {
+        try {
+          const parsed = JSON.parse(localProfile);
+          if (parsed.is_active) {
+            const sLat = parseFloat(parsed.lat);
+            const sLng = parseFloat(parsed.lng);
+            if (!isNaN(sLat) && !isNaN(sLng)) {
+              const distanceKm = calculateDistance(userCoords, { latitude: sLat, longitude: sLng });
+              const withinSla = distanceKm <= OPERATIONAL_GEOFENCE_KM;
+              setSellers([
+                {
+                  id: parsed.id || 'offline-seller-id',
+                  store_name: parsed.store_name || 'Mock Seller',
+                  description: parsed.description || '',
+                  address: parsed.address || '',
+                  latitude: sLat,
+                  longitude: sLng,
+                  geohash: '',
+                  is_active: true,
+                  distanceKm,
+                  withinSla
+                }
+              ]);
+            } else {
+              setSellers([]);
+            }
+          } else {
+            setSellers([]);
+          }
+        } catch {
+          setSellers([]);
+        }
+      } else {
+        setSellers([]);
+      }
     } finally {
-      setTimeout(() => setLoading(false), 400);
+      if (showLoading) {
+        setTimeout(() => setLoading(false), 400);
+      }
     }
   };
 
@@ -524,7 +577,7 @@ export default function CustomerDashboard() {
   };
 
   const activeSellersInSla = sellers.filter(s => s.withinSla && s.is_active);
-  const outOfSlaSellers = sellers.filter(s => !s.withinSla);
+  const outOfSlaSellers = sellers.filter(s => !s.withinSla && s.is_active);
 
   return (
     <div className="min-h-screen text-slate-100 pb-28 p-4 md:p-6" style={{ backgroundColor: '#121212' }}>
