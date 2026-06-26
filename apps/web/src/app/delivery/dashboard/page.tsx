@@ -187,6 +187,56 @@ export default function DeliveryDashboard() {
     { id: 'TXN-9980', type: 'delivery', amount: 120, description: 'Order #884C (Rain Surge Pay)', date: 'Yesterday, 09:10 PM' }
   ]);
 
+  // Contact States
+  const [customerPhone, setCustomerPhone] = useState<string | null>(null);
+  const [sellerPhone, setSellerPhone] = useState<string | null>(null);
+  const [customerName, setCustomerName] = useState<string>('Customer');
+  const [sellerName, setSellerName] = useState<string>('Store Manager');
+
+  useEffect(() => {
+    if (!activeOrder) {
+      setCustomerPhone(null);
+      setSellerPhone(null);
+      return;
+    }
+
+    const fetchContacts = async () => {
+      try {
+        const { data: customerData } = await supabase
+          .from('profiles')
+          .select('phone_number, full_name')
+          .eq('id', activeOrder.customer_id)
+          .single();
+        if (customerData) {
+          setCustomerPhone(customerData.phone_number || '+91 99999 12345');
+          setCustomerName(customerData.full_name || 'Customer');
+        } else {
+          setCustomerPhone('+91 99999 12345');
+          setCustomerName('Customer');
+        }
+
+        const { data: sellerData } = await supabase
+          .from('profiles')
+          .select('phone_number, full_name')
+          .eq('id', activeOrder.seller_id)
+          .single();
+        if (sellerData) {
+          setSellerPhone(sellerData.phone_number || '+91 88888 54321');
+          setSellerName(sellerData.full_name || 'Store Manager');
+        } else {
+          setSellerPhone('+91 88888 54321');
+          setSellerName('Store Manager');
+        }
+      } catch (err) {
+        console.warn('Real-time database fetch failed, setting simulation contact phone numbers:', err);
+        setCustomerPhone('+91 99999 12345');
+        setSellerPhone('+91 88888 54321');
+      }
+    };
+
+    fetchContacts();
+  }, [activeOrder?.id, activeOrder?.customer_id, activeOrder?.seller_id]);
+
   // Support Chatbot State
   const [supportMessages, setSupportMessages] = useState<ChatMessage[]>([
     { id: '1', sender: 'partner', text: 'Hello! I am your KDL Support Assistant. How can I help you today?', timestamp: '10:15 PM' }
@@ -501,7 +551,7 @@ export default function DeliveryDashboard() {
       });
 
     // Add completed job payout to earnings balance!
-    const jobPayout = 65; 
+    const jobPayout = Number(activeOrder.delivery_partner_fee) || 25.00; 
     setBalance(prev => prev + jobPayout);
     setTransactions(prev => [
       {
@@ -817,7 +867,7 @@ export default function DeliveryDashboard() {
                   </div>
                   <div className="flex gap-2 justify-between border-t pt-2 mt-2 border-zinc-800 text-[11px]">
                     <span className="font-bold text-zinc-500">Order Price: <span className="text-zinc-200">{formatINR(activeOrder.total_amount)}</span></span>
-                    <span className="font-bold text-yellow-500">Est. Payout: +₹65.00</span>
+                    <span className="font-bold text-yellow-500">Est. Payout: +{formatINR(Number(activeOrder.delivery_partner_fee) || 25.00)}</span>
                   </div>
                 </div>
 
@@ -962,6 +1012,27 @@ export default function DeliveryDashboard() {
                         <strong className="block text-zinc-400">DROP AT:</strong>
                         <p className="text-zinc-200 font-semibold text-[11px] mt-0.5">{activeOrder.delivery_address}</p>
                       </div>
+                    </div>
+                  </div>
+
+                  {/* Order Contacts Desk */}
+                  <div className="border-t border-zinc-800 pt-3.5 mt-2">
+                    <strong className="block text-zinc-500 font-extrabold uppercase text-[10px] tracking-wider mb-2.5">Order Contacts Desk</strong>
+                    <div className="grid grid-cols-2 gap-3">
+                      <a 
+                        href={`tel:${sellerPhone || '9876543210'}`}
+                        className="flex items-center justify-center gap-1.5 py-2.5 px-3.5 rounded-xl border border-zinc-800 bg-[#222] hover:bg-zinc-800 text-zinc-200 transition text-[11px] font-bold"
+                      >
+                        <PhoneCall size={12} className="text-yellow-500" />
+                        <span>Contact Seller</span>
+                      </a>
+                      <a 
+                        href={`tel:${customerPhone || '9999912345'}`}
+                        className="flex items-center justify-center gap-1.5 py-2.5 px-3.5 rounded-xl border border-zinc-800 bg-[#222] hover:bg-zinc-800 text-zinc-200 transition text-[11px] font-bold"
+                      >
+                        <User size={12} className="text-blue-400" />
+                        <span>Contact User</span>
+                      </a>
                     </div>
                   </div>
 

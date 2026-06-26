@@ -14,7 +14,7 @@ import {
 import {
   ShoppingBag, MapPin, Zap, AlertTriangle, ShieldCheck,
   Search, ChevronRight, Navigation, Loader2, Plus, Minus, X, Check, PackageSearch, Store,
-  MessageSquare, MessageCircle
+  MessageSquare, MessageCircle, CreditCard
 } from 'lucide-react';
 
 
@@ -72,6 +72,10 @@ export default function CustomerDashboard() {
   const [cart, setCart] = useState<CartItem[]>([]);
   const [checkingOut, setCheckingOut] = useState(false);
   const [checkoutSuccess, setCheckoutSuccess] = useState(false);
+  const [showCheckoutDetails, setShowCheckoutDetails] = useState(false);
+  const [showRazorpaySandbox, setShowRazorpaySandbox] = useState(false);
+  const [razorpayOrderId, setRazorpayOrderId] = useState('');
+  const [paymentError, setPaymentError] = useState<string | null>(null);
   const [activeOrderTrackingId, setActiveOrderTrackingId] = useState<string | null>(() => {
     if (typeof window !== 'undefined') {
       return localStorage.getItem('kdlgoods_customer_active_tracking_id');
@@ -533,45 +537,180 @@ export default function CustomerDashboard() {
 
   const cartTotal = cart.reduce((acc, item) => acc + item.price * item.quantity, 0);
 
-  const handleCheckout = async () => {
-    if (cart.length === 0) return;
+  // Blinkit-style delivery partner fee: between ₹20 and ₹30 based on distance
+  const getDeliveryPartnerFee = () => {
+    if (!selectedSeller) return 25;
+    const calculated = 20 + Math.round(selectedSeller.distanceKm * 5);
+    return Math.max(20, Math.min(30, calculated));
+  };
+
+  const deliveryPartnerFee = getDeliveryPartnerFee();
+
+  const loadRazorpayScript = () => {
+    return new Promise((resolve) => {
+      if (typeof window === 'undefined') {
+        resolve(false);
+        return;
+      }
+      if ((window as any).Razorpay) {
+        resolve(true);
+        return;
+      }
+      const script = document.createElement('script');
+      script.src = 'https://checkout.razorpay.com/v1/checkout.js';
+      script.async = true;
+      script.onload = () => resolve(true);
+      script.onerror = () => resolve(false);
+      document.body.appendChild(script);
+    });
+  };
+
+  const createOrder = async (razorpayPaymentId?: string) => {
+    const finalAmount = cartTotal + deliveryPartnerFee;
     setCheckingOut(true);
-    await new Promise(resolve => setTimeout(resolve, 1200));
 
     try {
       const payload = {
         customer_id: customerId,
         seller_id: cart[0].seller_id,
         status: 'placed',
-        total_amount: cartTotal,
+        total_amount: finalAmount,
+        delivery_partner_fee: deliveryPartnerFee,
         delivery_address: 'Kirandul, Dantewada District, Chhattisgarh – 494556',
         delivery_location: `POINT(${userCoords.longitude} ${userCoords.latitude})`,
       };
 
-      const { data, error } = await supabase.from('orders').insert([payload]).select('id').single();
+      const { data, error } = await supabase
+        .from('orders')
+        .insert([payload])
+        .select('id')
+        .single();
 
       if (error) throw error;
       setActiveOrderTrackingId(data.id);
-    } catch {
+    } catch (err) {
+      console.warn('Supabase DB checkout failed. Falling back to local offline storage simulation:', err);
       const mockOrderId = 'order-' + Math.floor(Math.random() * 10000);
       const mockOrder = {
         id: mockOrderId,
-        customer_id: 'cust-1',
+        customer_id: customerId || 'cust-1',
         seller_id: cart[0].seller_id,
         delivery_partner_id: null,
         status: 'placed',
-        total_amount: cartTotal,
+        total_amount: finalAmount,
+        delivery_partner_fee: deliveryPartnerFee,
         delivery_address: 'Kirandul, Dantewada District, Chhattisgarh – 494556',
         delivery_location: { latitude: userCoords.latitude, longitude: userCoords.longitude },
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       };
+      
       const existing = JSON.parse(localStorage.getItem('kdlgoods_orders') || '[]');
       localStorage.setItem('kdlgoods_orders', JSON.stringify([mockOrder, ...existing]));
       setActiveOrderTrackingId(mockOrderId);
     } finally {
       setCheckoutSuccess(true);
       setCart([]);
+      setCheckingOut(false);
+      setShowCheckoutDetails(false);
+    }
+  };
+
+  const initiatePaymentFlow = async () => {
+    setPaymentError(null);
+    setCheckingOut(true);
+
+    try {
+      // 1. Create order on Next.js server
+      const finalAmount = cartTotal + deliveryPartnerFee;
+      const res = await fetch('/api/checkout/razorpay', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ amount: finalAmount })
+      });
+
+      if (!res.ok) {
+        throw new Error('Failed to initialize payment gateway order');
+      }
+
+      const orderData = await res.json();
+      
+      // If server generated a mock order (missing/empty credentials)
+      if (orderData.is_mock) {
+        setRazorpayOrderId(orderData.id);
+        setShowRazorpaySandbox(true);
+        setCheckingOut(false);
+        return;
+      }
+
+      // 2. Try loading script for real integration
+      const loaded = await loadRazorpayScript();
+      if (!loaded) {
+        // Falling back to Sandbox mode
+        setRazorpayOrderId(orderData.id || 'order_mock_' + Math.random().toString(36).substring(2, 10));
+        setShowRazorpaySandbox(true);
+        setCheckingOut(false);
+        return;
+      }
+
+      // 3. Launch Razorpay Checkout dialog
+      const keyId = process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID;
+      const options = {
+        key: keyId,
+        amount: orderData.amount,
+        currency: orderData.currency,
+        name: 'KDLGOODS',
+        description: 'Instant Hyperlocal Checkout',
+        image: '/icon-192.png',
+        order_id: orderData.id,
+        handler: async (response: any) => {
+          setCheckingOut(true);
+          // Verify payment
+          try {
+            const verifyRes = await fetch('/api/checkout/verify', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                razorpay_order_id: response.razorpay_order_id,
+                razorpay_payment_id: response.razorpay_payment_id,
+                razorpay_signature: response.razorpay_signature
+              })
+            });
+
+            const verifyData = await verifyRes.json();
+            if (verifyData.success) {
+              await createOrder(response.razorpay_payment_id);
+            } else {
+              setPaymentError('Signature verification failed. Payment was rejected.');
+              setCheckingOut(false);
+            }
+          } catch (err: any) {
+            setPaymentError(err.message || 'Payment verification failed');
+            setCheckingOut(false);
+          }
+        },
+        prefill: {
+          name: 'Customer test',
+          email: 'customer@kdlgoods.com',
+          contact: '9999999999'
+        },
+        theme: {
+          color: '#F7D108'
+        },
+        modal: {
+          ondismiss: () => {
+            setCheckingOut(false);
+          }
+        }
+      };
+
+      const rzp = new (window as any).Razorpay(options);
+      rzp.open();
+    } catch (err: any) {
+      console.warn('Real Razorpay initialization failed, launching Sandbox simulation overlay:', err);
+      // Sandbox fallback on failure
+      setRazorpayOrderId('order_mock_' + Math.random().toString(36).substring(2, 10));
+      setShowRazorpaySandbox(true);
       setCheckingOut(false);
     }
   };
@@ -819,9 +958,17 @@ export default function CustomerDashboard() {
                     </div>
                   </div>
 
-                  <div className="border-t border-zinc-800 pt-3 mt-3 flex items-center justify-between text-xs">
-                    <span className="text-zinc-500 font-bold uppercase">Total Bill</span>
-                    <span className="text-base font-extrabold text-white">{formatINR(activeOrder.total_amount)}</span>
+                  <div className="border-t border-zinc-800 pt-3 mt-3 space-y-2 text-xs">
+                    {activeOrder.delivery_partner_fee && (
+                      <div className="flex justify-between items-center text-zinc-400">
+                        <span>Delivery partner fee</span>
+                        <span>{formatINR(activeOrder.delivery_partner_fee)}</span>
+                      </div>
+                    )}
+                    <div className="flex items-center justify-between font-bold">
+                      <span className="text-zinc-500 uppercase">Total Bill (Paid)</span>
+                      <span className="text-base font-extrabold text-white">{formatINR(activeOrder.total_amount)}</span>
+                    </div>
                   </div>
                 </div>
 
@@ -1100,11 +1247,159 @@ export default function CustomerDashboard() {
           </div>
           <div className="flex items-center gap-4">
             <span className="text-lg font-extrabold">{formatINR(cartTotal)}</span>
-            <button onClick={handleCheckout} disabled={checkingOut} className="btn-primary">
+            <button onClick={() => setShowCheckoutDetails(true)} disabled={checkingOut} className="btn-primary">
               {checkingOut ? (
-                <><Loader2 className="animate-spin" size={15} /> Placing...</>
-              ) : 'Place Order'}
+                <><Loader2 className="animate-spin" size={15} /> Processing...</>
+              ) : 'Checkout'}
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* Blinkit-Style Bill Details Modal */}
+      {showCheckoutDetails && (
+        <div className="fixed inset-0 bg-black/75 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fade-in">
+          <div className="w-full max-w-md rounded-2xl p-6 relative" style={{ background: '#1A1A1A', border: '1px solid #2E2E2E' }}>
+            <button 
+              onClick={() => setShowCheckoutDetails(false)} 
+              className="absolute top-4 right-4 text-zinc-500 hover:text-white transition"
+            >
+              <X size={20} />
+            </button>
+
+            <h3 className="text-base font-black text-white mb-5 flex items-center gap-2 border-b pb-3 animate-fade-in" style={{ borderColor: '#2E2E2E' }}>
+              <ShoppingBag size={20} style={{ color: '#F7D108' }} /> Bill Details
+            </h3>
+
+            {/* Bill Rows */}
+            <div className="space-y-4 text-xs text-zinc-300">
+              <div className="flex justify-between items-center">
+                <span>Item Total</span>
+                <span className="font-semibold text-white">{formatINR(cartTotal)}</span>
+              </div>
+              
+              <div className="flex justify-between items-start">
+                <div>
+                  <span className="block text-zinc-200">Delivery partner fee</span>
+                  <span className="text-[10px] text-zinc-500 block">This fee goes entirely to support your delivery partner</span>
+                </div>
+                <span className="font-semibold text-white">{formatINR(deliveryPartnerFee)}</span>
+              </div>
+
+              <div className="border-t pt-4 flex justify-between items-center" style={{ borderColor: '#2E2E2E' }}>
+                <span className="font-bold text-white text-sm">Grand Total</span>
+                <span className="text-base font-extrabold text-[#F7D108]">{formatINR(cartTotal + deliveryPartnerFee)}</span>
+              </div>
+            </div>
+
+            {paymentError && (
+              <div className="mt-4 p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-[11px] flex items-center gap-1.5">
+                <AlertTriangle size={14} />
+                <span>{paymentError}</span>
+              </div>
+            )}
+
+            {/* Pay Button */}
+            <div className="mt-6 flex flex-col gap-3">
+              <button 
+                onClick={initiatePaymentFlow} 
+                disabled={checkingOut} 
+                className="w-full btn-primary py-3 rounded-xl font-bold flex items-center justify-center gap-2 text-xs"
+              >
+                {checkingOut ? (
+                  <><Loader2 className="animate-spin" size={16} /> Initializing payment...</>
+                ) : (
+                  <>Pay {formatINR(cartTotal + deliveryPartnerFee)} via Razorpay</>
+                )}
+              </button>
+              
+              <button 
+                onClick={() => setShowCheckoutDetails(false)}
+                className="w-full text-center text-xs text-zinc-500 hover:text-zinc-300 font-bold transition"
+              >
+                Cancel &amp; Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Razorpay Simulated Sandbox Gateway */}
+      {showRazorpaySandbox && (
+        <div className="fixed inset-0 bg-black/85 z-[60] flex items-center justify-center p-4">
+          <div className="w-full max-w-sm rounded-xl overflow-hidden shadow-2xl relative border border-zinc-800" style={{ background: '#121212', fontFamily: 'sans-serif' }}>
+            {/* Razorpay Brand Header */}
+            <div className="p-4 bg-[#1e2736] flex items-center justify-between border-b border-zinc-800">
+              <div className="flex items-center gap-2">
+                <div className="w-6 h-6 rounded bg-[#2e3e56] flex items-center justify-center text-[10px] font-black text-blue-400">rzp</div>
+                <div>
+                  <h4 className="text-[10px] font-black text-white uppercase tracking-wider">Razorpay Checkout</h4>
+                  <p className="text-[9px] text-zinc-400">Sandbox Test Mode</p>
+                </div>
+              </div>
+              <div className="text-right">
+                <span className="text-[9px] text-zinc-400 block font-semibold">Amount to Pay</span>
+                <span className="text-xs font-extrabold text-white">{formatINR(cartTotal + deliveryPartnerFee)}</span>
+              </div>
+            </div>
+
+            {/* Content body */}
+            <div className="p-6 space-y-5 text-center">
+              <div className="w-12 h-12 rounded-full bg-blue-500/10 border border-blue-500/20 text-blue-400 flex items-center justify-center mx-auto animate-pulse">
+                <CreditCard size={22} />
+              </div>
+              
+              <div>
+                <h3 className="font-bold text-white text-xs">Simulated Payment Gateway</h3>
+                <p className="text-[11px] text-zinc-500 mt-1 leading-relaxed">
+                  Real credentials are not set in <code>.env.local</code>.<br />
+                  Select a test result below to simulate the Razorpay transaction response.
+                </p>
+              </div>
+
+              {/* Order ID Tag */}
+              <div className="py-1.5 px-3 rounded-lg bg-zinc-900 border border-zinc-800 text-[10px] font-mono text-zinc-400 select-all">
+                ORDER ID: {razorpayOrderId}
+              </div>
+
+              {/* Action Buttons */}
+              <div className="grid grid-cols-2 gap-3 pt-2">
+                <button 
+                  onClick={async () => {
+                    setShowRazorpaySandbox(false);
+                    setCheckingOut(true);
+                    // Simulate successful API call response verification
+                    await new Promise(resolve => setTimeout(resolve, 800));
+                    await createOrder('pay_mock_' + Math.random().toString(36).substring(2, 10));
+                  }}
+                  className="py-2.5 rounded-lg bg-green-600 hover:bg-green-500 text-white text-xs font-bold transition shadow-lg shadow-green-900/20"
+                >
+                  ✓ Success
+                </button>
+                <button 
+                  onClick={() => {
+                    setShowRazorpaySandbox(false);
+                    setPaymentError('Payment failed or cancelled by user in Razorpay Simulator.');
+                  }}
+                  className="py-2.5 rounded-lg bg-red-600 hover:bg-red-500 text-white text-xs font-bold transition shadow-lg shadow-red-900/20"
+                >
+                  ✗ Failure
+                </button>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="p-3 bg-zinc-900 border-t border-zinc-800 text-center">
+              <button 
+                onClick={() => {
+                  setShowRazorpaySandbox(false);
+                  setCheckingOut(false);
+                }}
+                className="text-[10px] text-zinc-500 hover:text-zinc-300 font-bold transition"
+              >
+                Close Gateway
+              </button>
+            </div>
           </div>
         </div>
       )}

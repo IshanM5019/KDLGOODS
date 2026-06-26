@@ -75,6 +75,7 @@ export interface Order {
   delivery_partner_id: string | null;
   status: OrderStatus;
   total_amount: number;
+  delivery_partner_fee: number;
   delivery_address: string;
   delivery_location: LatLng;
   created_at: string;
