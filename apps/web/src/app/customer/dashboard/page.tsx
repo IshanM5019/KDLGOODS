@@ -572,10 +572,10 @@ export default function CustomerDashboard() {
 
   const deliveryPartnerFee = getDeliveryPartnerFee();
 
-  // Blinkit billing details system
-  const smallCartFee = cartTotal < 250 && cartTotal > 0 ? 25 : 0;
-  const handlingCharge = cartTotal > 0 ? 4 : 0;
-  const grandTotal = cartTotal + deliveryPartnerFee + smallCartFee + handlingCharge;
+  // Only apply delivery charges
+  const smallCartFee = 0;
+  const handlingCharge = 0;
+  const grandTotal = cartTotal + deliveryPartnerFee;
 
   // Razorpay script loading removed
 
