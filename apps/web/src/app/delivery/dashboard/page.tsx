@@ -251,6 +251,27 @@ export default function DeliveryDashboard() {
   const [supportInput, setSupportInput] = useState('');
   const [supportLoading, setSupportLoading] = useState(false);
 
+  const checkActiveOrder = async (currentDriverId: string) => {
+    try {
+      const { data, error } = await supabase
+        .from('orders')
+        .select('*')
+        .eq('delivery_partner_id', currentDriverId)
+        .in('status', ['awaiting_pickup', 'driver_accepted', 'picked_up', 'out_for_delivery'])
+        .order('updated_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (!error && data) {
+        setActiveOrder(data as Order);
+        if (data.status === 'awaiting_pickup') {
+          setShowAlert(true);
+        }
+      }
+    } catch (err) {
+      console.warn('Failed to fetch active driver order:', err);
+    }
+  };
+
   useEffect(() => {
     // Request notification permission on mount
     if (typeof window !== 'undefined' && 'Notification' in window) {
@@ -285,6 +306,9 @@ export default function DeliveryDashboard() {
 
         setDriverId(user.id);
         const currentDriverId = user.id;
+
+        // Fetch existing active order
+        await checkActiveOrder(currentDriverId);
 
         // Fetch balance from delivery_partners
         const { data: partnerData } = await supabase
@@ -497,6 +521,10 @@ export default function DeliveryDashboard() {
   const handleToggleOnline = async () => {
     const nextVal = !isOnline;
     setIsOnline(nextVal);
+
+    if (nextVal) {
+      checkActiveOrder(driverId);
+    }
 
     try {
       await supabase
