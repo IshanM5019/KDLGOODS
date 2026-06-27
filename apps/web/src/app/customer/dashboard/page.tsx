@@ -1434,14 +1434,11 @@ export default function CustomerDashboard() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => setPaymentMethod('upi')}
-                  className={`py-3 px-4 rounded-xl border text-xs font-bold text-center transition ${
-                    paymentMethod === 'upi'
-                      ? 'border-yellow-500 bg-yellow-500/10 text-yellow-500'
-                      : 'border-zinc-800 bg-zinc-900 text-zinc-400 hover:text-zinc-200'
-                  }`}
+                  disabled
+                  style={{ opacity: 0.4, cursor: 'not-allowed' }}
+                  className="py-3 px-4 rounded-xl border border-zinc-900 bg-zinc-950 text-zinc-500 text-xs font-bold text-center"
                 >
-                  📱 Online UPI Pay
+                  📱 Online UPI (Disabled)
                 </button>
               </div>
             </div>
