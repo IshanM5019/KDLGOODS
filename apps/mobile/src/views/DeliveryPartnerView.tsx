@@ -3,9 +3,12 @@ import { StyleSheet, Text, View, Switch, TouchableOpacity, ScrollView, Alert } f
 import { supabase } from '../lib/supabase';
 import { Order, OrderStatus, DANTEWADA_CENTER, TOWN_NAME, formatINR } from '@kdlgoods/shared';
 
-export default function DeliveryPartnerView() {
+interface DeliveryPartnerViewProps {
+  driverId: string;
+}
+
+export default function DeliveryPartnerView({ driverId }: DeliveryPartnerViewProps) {
   const [isOnline, setIsOnline] = useState(false);
-  const [driverId, setDriverId] = useState('driver-uuid-placeholder-123');
   
   // Active assigned order
   const [activeOrder, setActiveOrder] = useState<Order | null>(null);
@@ -13,6 +16,27 @@ export default function DeliveryPartnerView() {
 
   // Simulated coordinate telemetry – defaulted to Dantewada Kirandul
   const [coords, setCoords] = useState(DANTEWADA_CENTER);
+
+  const checkActiveOrder = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('orders')
+        .select('*')
+        .eq('delivery_partner_id', driverId)
+        .in('status', ['awaiting_pickup', 'driver_accepted', 'picked_up', 'out_for_delivery'])
+        .order('updated_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (!error && data) {
+        setActiveOrder(data as Order);
+        if (data.status === 'awaiting_pickup') {
+          setShowDispatchAlert(true);
+        }
+      }
+    } catch (err) {
+      console.warn('Failed to fetch active driver order:', err);
+    }
+  };
 
   useEffect(() => {
     if (!isOnline) {
@@ -23,6 +47,9 @@ export default function DeliveryPartnerView() {
 
     // Initialize driver location in Supabase
     updateDriverLocation();
+
+    // Check for existing active orders assigned to driver
+    checkActiveOrder();
 
     // Subscribe to order assignments where delivery_partner_id = driverId
     const orderSubscription = supabase
@@ -41,12 +68,10 @@ export default function DeliveryPartnerView() {
       )
       .subscribe();
 
-    // No auto-dispatch simulator – clean empty state until real Supabase order arrives
-
     return () => {
       supabase.removeChannel(orderSubscription);
     };
-  }, [isOnline]);
+  }, [isOnline, driverId]);
 
   const updateDriverLocation = async () => {
     // Update delivery_partners coordinates in public table
@@ -81,10 +106,32 @@ export default function DeliveryPartnerView() {
     setShowDispatchAlert(false);
     if (!activeOrder) return;
 
-    // Transition order state to 'out_for_delivery'
+    // Transition order state to 'driver_accepted'
     const { error } = await supabase
       .from('orders')
-      .update({ status: 'out_for_delivery' })
+      .update({ status: 'driver_accepted' })
+      .eq('id', activeOrder.id);
+
+    // Also write to delivery logs
+    const { error: logErr } = await supabase
+      .from('delivery_logs')
+      .insert({
+        order_id: activeOrder.id,
+        delivery_partner_id: driverId,
+        status: 'accepted',
+        location: `POINT(${coords.longitude} ${coords.latitude})`,
+      });
+
+    setActiveOrder(prev => prev ? { ...prev, status: 'driver_accepted' } : null);
+  };
+
+  const handleMarkPickedUp = async () => {
+    if (!activeOrder) return;
+
+    // Transition order state to 'picked_up'
+    const { error } = await supabase
+      .from('orders')
+      .update({ status: 'picked_up' })
       .eq('id', activeOrder.id);
 
     // Also write to delivery logs
@@ -97,12 +144,29 @@ export default function DeliveryPartnerView() {
         location: `POINT(${coords.longitude} ${coords.latitude})`,
       });
 
-    if (error || logErr) {
-      // Mock transition locally
-      setActiveOrder(prev => prev ? { ...prev, status: 'out_for_delivery' } : null);
-    } else {
-      setActiveOrder(prev => prev ? { ...prev, status: 'out_for_delivery' } : null);
-    }
+    setActiveOrder(prev => prev ? { ...prev, status: 'picked_up' } : null);
+  };
+
+  const handleStartDelivery = async () => {
+    if (!activeOrder) return;
+
+    // Transition order state to 'out_for_delivery'
+    const { error } = await supabase
+      .from('orders')
+      .update({ status: 'out_for_delivery' })
+      .eq('id', activeOrder.id);
+
+    // Also write to delivery logs
+    const { error: logErr } = await supabase
+      .from('delivery_logs')
+      .insert({
+        order_id: activeOrder.id,
+        delivery_partner_id: driverId,
+        status: 'out_for_delivery',
+        location: `POINT(${coords.longitude} ${coords.latitude})`,
+      });
+
+    setActiveOrder(prev => prev ? { ...prev, status: 'out_for_delivery' } : null);
   };
 
   const handleRejectRequest = () => {
@@ -215,14 +279,22 @@ export default function DeliveryPartnerView() {
 
           <View style={styles.divider} />
 
-          {activeOrder.status === 'out_for_delivery' ? (
+          {activeOrder.status === 'driver_accepted' ? (
+            <TouchableOpacity style={styles.btnPrimary} onPress={handleMarkPickedUp}>
+              <Text style={styles.btnText}>Mark Order as [Picked Up]</Text>
+            </TouchableOpacity>
+          ) : activeOrder.status === 'picked_up' ? (
+            <TouchableOpacity style={styles.btnPrimary} onPress={handleStartDelivery}>
+              <Text style={styles.btnText}>Start Delivery [On the Way]</Text>
+            </TouchableOpacity>
+          ) : activeOrder.status === 'out_for_delivery' ? (
             <TouchableOpacity style={styles.btnPrimary} onPress={handleMarkDelivered}>
               <Text style={styles.btnText}>Mark Order as [Delivered]</Text>
             </TouchableOpacity>
           ) : activeOrder.status === 'delivered' ? (
             <Text style={styles.successText}>✓ Delivery completed successfully.</Text>
           ) : (
-            <Text style={styles.body}>Order is prepared. Reach store for pickup.</Text>
+            <Text style={styles.body}>Awaiting next steps.</Text>
           )}
         </View>
       )}

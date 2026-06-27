@@ -53,7 +53,7 @@ export const CheckoutSchema = z.object({
 });
 
 export const UpdateOrderStatusSchema = z.object({
-  status: z.enum(['placed', 'accepted', 'preparing', 'awaiting_pickup', 'out_for_delivery', 'delivered', 'cancelled']),
+  status: z.enum(['placed', 'accepted', 'preparing', 'awaiting_pickup', 'driver_accepted', 'picked_up', 'out_for_delivery', 'delivered', 'cancelled']),
 });
 
 export const UpdateDeliveryLogSchema = z.object({

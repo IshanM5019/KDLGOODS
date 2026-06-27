@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
+import { useRouter } from 'next/navigation';
 import { supabase } from '../../../lib/supabase';
 import { Order, OrderStatus, DANTEWADA_CENTER, TOWN_NAME, formatINR } from '@kdlgoods/shared';
 import {
@@ -91,6 +92,7 @@ interface Transaction {
 }
 
 export default function DeliveryDashboard() {
+  const router = useRouter();
   const [activeTab, setActiveTab] = useState<'jobs' | 'earnings' | 'support'>('jobs');
   const [isOnline, setIsOnline] = useState(() => {
     if (typeof window !== 'undefined') {
@@ -258,40 +260,58 @@ export default function DeliveryDashboard() {
     }
 
     const fetchUser = async () => {
-      let currentDriverId = 'driver-uuid-placeholder-123';
       try {
         const { data: { user } } = await supabase.auth.getUser();
-        if (user) {
-          setDriverId(user.id);
-          currentDriverId = user.id;
-
-          // Fetch balance from delivery_partners
-          const { data: partnerData } = await supabase
-            .from('delivery_partners')
-            .select('balance')
-            .eq('id', user.id)
-            .single();
-          if (partnerData) {
-            setBalance(Number(partnerData.balance) || 0);
-            localStorage.setItem('kdlgoods_rider_balance', String(partnerData.balance || '0'));
-          }
+        if (!user) {
+          router.push('/auth/signin');
+          return;
         }
+
+        // Verify role
+        const { data: profile, error: profileErr } = await supabase
+          .from('profiles')
+          .select('role')
+          .eq('id', user.id)
+          .single();
+        const userRole = profile?.role || user.user_metadata?.role || 'customer';
+        if (userRole !== 'delivery') {
+          if (userRole === 'seller') {
+            router.push('/seller/dashboard');
+          } else {
+            router.push('/customer/dashboard');
+          }
+          return;
+        }
+
+        setDriverId(user.id);
+        const currentDriverId = user.id;
+
+        // Fetch balance from delivery_partners
+        const { data: partnerData } = await supabase
+          .from('delivery_partners')
+          .select('balance')
+          .eq('id', user.id)
+          .single();
+        if (partnerData) {
+          setBalance(Number(partnerData.balance) || 0);
+          localStorage.setItem('kdlgoods_rider_balance', String(partnerData.balance || '0'));
+        }
+
+        // Sync coordinate to local storage on mount so customer & seller pages can read it immediately
+        const partners = JSON.parse(localStorage.getItem('kdlgoods_delivery_partners') || '{}');
+        partners[currentDriverId] = {
+          id: currentDriverId,
+          is_online: isOnline,
+          location: { latitude: coords.latitude, longitude: coords.longitude },
+          updated_at: new Date().toISOString()
+        };
+        localStorage.setItem('kdlgoods_delivery_partners', JSON.stringify(partners));
+        window.dispatchEvent(new Event('storage'));
       } catch (err) {
         console.error('Failed to get delivery partner user/balance:', err);
       } finally {
         setLoadingUser(false);
       }
-
-      // Sync coordinate to local storage on mount so customer & seller pages can read it immediately
-      const partners = JSON.parse(localStorage.getItem('kdlgoods_delivery_partners') || '{}');
-      partners[currentDriverId] = {
-        id: currentDriverId,
-        is_online: isOnline,
-        location: { latitude: coords.latitude, longitude: coords.longitude },
-        updated_at: new Date().toISOString()
-      };
-      localStorage.setItem('kdlgoods_delivery_partners', JSON.stringify(partners));
-      window.dispatchEvent(new Event('storage'));
     };
     fetchUser();
   }, []);
@@ -402,8 +422,11 @@ export default function DeliveryDashboard() {
     const checkLocalInterval = setInterval(() => {
       const local = JSON.parse(localStorage.getItem('kdlgoods_orders') || '[]');
       
-      const ongoingOrder = local.find((o: any) => o.delivery_partner_id === driverId && o.status === 'out_for_delivery');
-      if (ongoingOrder && (!activeOrder || activeOrder.status !== 'out_for_delivery')) {
+      const ongoingOrder = local.find((o: any) => 
+        o.delivery_partner_id === driverId && 
+        ['driver_accepted', 'picked_up', 'out_for_delivery'].includes(o.status)
+      );
+      if (ongoingOrder && (!activeOrder || activeOrder.status !== ongoingOrder.status)) {
         setActiveOrder(ongoingOrder);
         setShowAlert(false);
         return;
@@ -503,7 +526,7 @@ export default function DeliveryDashboard() {
     try {
       const { error } = await supabase
         .from('orders')
-        .update({ status: 'out_for_delivery' })
+        .update({ status: 'driver_accepted' })
         .eq('id', activeOrder.id);
       if (error) throw error;
     } catch (err) {
@@ -511,7 +534,44 @@ export default function DeliveryDashboard() {
       const local = JSON.parse(localStorage.getItem('kdlgoods_orders') || '[]');
       const updated = local.map((o: any) => {
         if (o.id === activeOrder.id) {
-          return { ...o, status: 'out_for_delivery' };
+          return { ...o, status: 'driver_accepted' };
+        }
+        return o;
+      });
+      localStorage.setItem('kdlgoods_orders', JSON.stringify(updated));
+    }
+
+    // Write log
+    await supabase
+      .from('delivery_logs')
+      .insert({
+        order_id: activeOrder.id,
+        delivery_partner_id: driverId,
+        status: 'accepted',
+        location: `POINT(${coords.longitude} ${coords.latitude})`,
+      });
+
+    setActiveOrder(prev => prev ? { ...prev, status: 'driver_accepted' } : null);
+    
+    // Set route simulator to store heading step
+    setSimStep(1);
+    setCoords(ROUTE_STEPS[1]);
+  };
+
+  const handleMarkPickedUp = async () => {
+    if (!activeOrder) return;
+
+    try {
+      const { error } = await supabase
+        .from('orders')
+        .update({ status: 'picked_up' })
+        .eq('id', activeOrder.id);
+      if (error) throw error;
+    } catch (err) {
+      const local = JSON.parse(localStorage.getItem('kdlgoods_orders') || '[]');
+      const updated = local.map((o: any) => {
+        if (o.id === activeOrder.id) {
+          return { ...o, status: 'picked_up' };
         }
         return o;
       });
@@ -528,9 +588,46 @@ export default function DeliveryDashboard() {
         location: `POINT(${coords.longitude} ${coords.latitude})`,
       });
 
+    setActiveOrder(prev => prev ? { ...prev, status: 'picked_up' } : null);
+    
+    // Set simulator to store arrival step
+    setSimStep(3);
+    setCoords(ROUTE_STEPS[3]);
+  };
+
+  const handleStartDelivery = async () => {
+    if (!activeOrder) return;
+
+    try {
+      const { error } = await supabase
+        .from('orders')
+        .update({ status: 'out_for_delivery' })
+        .eq('id', activeOrder.id);
+      if (error) throw error;
+    } catch (err) {
+      const local = JSON.parse(localStorage.getItem('kdlgoods_orders') || '[]');
+      const updated = local.map((o: any) => {
+        if (o.id === activeOrder.id) {
+          return { ...o, status: 'out_for_delivery' };
+        }
+        return o;
+      });
+      localStorage.setItem('kdlgoods_orders', JSON.stringify(updated));
+    }
+
+    // Write log
+    await supabase
+      .from('delivery_logs')
+      .insert({
+        order_id: activeOrder.id,
+        delivery_partner_id: driverId,
+        status: 'out_for_delivery',
+        location: `POINT(${coords.longitude} ${coords.latitude})`,
+      });
+
     setActiveOrder(prev => prev ? { ...prev, status: 'out_for_delivery' } : null);
     
-    // Jump route simulator step after pickup accepted
+    // Set simulator to departing store step
     setSimStep(4);
     setCoords(ROUTE_STEPS[4]);
   };
@@ -1069,7 +1166,21 @@ export default function DeliveryDashboard() {
 
                   {/* Actions depending on simulated route progress */}
                   <div className="border-t border-zinc-800 pt-4 mt-2">
-                    {activeOrder.status === 'out_for_delivery' ? (
+                    {activeOrder.status === 'driver_accepted' ? (
+                      <button
+                        onClick={handleMarkPickedUp}
+                        className="w-full font-bold py-3 rounded-xl transition flex items-center justify-center gap-2 bg-yellow-500 text-black hover:bg-yellow-400 text-xs uppercase tracking-wider"
+                      >
+                        <Check size={16} /> Mark as Picked Up
+                      </button>
+                    ) : activeOrder.status === 'picked_up' ? (
+                      <button
+                        onClick={handleStartDelivery}
+                        className="w-full font-bold py-3 rounded-xl transition flex items-center justify-center gap-2 bg-blue-500 text-white hover:bg-blue-400 text-xs uppercase tracking-wider"
+                      >
+                        <Check size={16} /> Start Delivery (On the Way)
+                      </button>
+                    ) : activeOrder.status === 'out_for_delivery' ? (
                       <button
                         onClick={handleMarkDelivered}
                         className="w-full font-bold py-3 rounded-xl transition flex items-center justify-center gap-2 bg-[#22C55E] text-[#121212] text-xs uppercase tracking-wider"

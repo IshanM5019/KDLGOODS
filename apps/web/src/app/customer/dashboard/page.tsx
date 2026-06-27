@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { supabase } from '../../../lib/supabase';
 import {
   calculateDistance,
@@ -40,6 +41,7 @@ interface CartItem {
 }
 
 export default function CustomerDashboard() {
+  const router = useRouter();
   const [sellers, setSellers] = useState<LocalSeller[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -145,20 +147,39 @@ export default function CustomerDashboard() {
     const fetchUser = async () => {
       try {
         const { data: { user } } = await supabase.auth.getUser();
-        if (user) {
-          setCustomerId(user.id);
-          // Auto-detect existing active database orders for the customer
-          const { data, error } = await supabase
-            .from('orders')
-            .select('id')
-            .eq('customer_id', user.id)
-            .not('status', 'in', '("delivered","cancelled")')
-            .order('created_at', { ascending: false })
-            .limit(1)
-            .maybeSingle();
-          if (data) {
-            setActiveOrderTrackingId(data.id);
+        if (!user) {
+          router.push('/auth/signin');
+          return;
+        }
+
+        // Verify role
+        const { data: profile, error: profileErr } = await supabase
+          .from('profiles')
+          .select('role')
+          .eq('id', user.id)
+          .single();
+        const userRole = profile?.role || user.user_metadata?.role || 'customer';
+        if (userRole !== 'customer') {
+          if (userRole === 'seller') {
+            router.push('/seller/dashboard');
+          } else if (userRole === 'delivery') {
+            router.push('/delivery/dashboard');
           }
+          return;
+        }
+
+        setCustomerId(user.id);
+        // Auto-detect existing active database orders for the customer
+        const { data, error } = await supabase
+          .from('orders')
+          .select('id')
+          .eq('customer_id', user.id)
+          .not('status', 'in', '("delivered","cancelled")')
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (data) {
+          setActiveOrderTrackingId(data.id);
         }
       } catch (err) {
         console.error('Failed to fetch user:', err);
@@ -170,10 +191,12 @@ export default function CustomerDashboard() {
 
   // Poll LocalStorage offline fallback active order check
   useEffect(() => {
+    if (customerId === '00000000-0000-0000-0000-000000000000') return;
+
     const checkLocalActiveOrder = () => {
       if (activeOrderTrackingId) return;
       const local = JSON.parse(localStorage.getItem('kdlgoods_orders') || '[]');
-      const active = local.find((o: any) => !['delivered', 'cancelled'].includes(o.status));
+      const active = local.find((o: any) => o.customer_id === customerId && !['delivered', 'cancelled'].includes(o.status));
       if (active) {
         setActiveOrderTrackingId(active.id);
       }
@@ -181,7 +204,7 @@ export default function CustomerDashboard() {
     checkLocalActiveOrder();
     const interval = setInterval(checkLocalActiveOrder, 2000);
     return () => clearInterval(interval);
-  }, [activeOrderTrackingId]);
+  }, [activeOrderTrackingId, customerId]);
 
   // Order status, location tracking, and chat synchronization
   useEffect(() => {
@@ -724,6 +747,17 @@ export default function CustomerDashboard() {
     }
   };
 
+  if (loading || customerId === '00000000-0000-0000-0000-000000000000') {
+    return (
+      <div className="min-h-screen flex items-center justify-center text-white" style={{ backgroundColor: '#121212' }}>
+        <div className="flex flex-col items-center gap-3">
+          <Loader2 className="animate-spin text-yellow-500" size={32} />
+          <p className="text-sm text-zinc-400">Loading customer profile...</p>
+        </div>
+      </div>
+    );
+  }
+
   const activeSellersInSla = sellers.filter(s => s.withinSla && s.is_active);
   const outOfSlaSellers = sellers.filter(s => !s.withinSla && s.is_active);
 
@@ -816,7 +850,15 @@ export default function CustomerDashboard() {
                     Order #{activeOrder.id.slice(0, 8).toUpperCase()}
                   </h2>
                   <p className="text-xs mt-0.5" style={{ color: '#8A8A8A' }}>
-                    Status: <span className="text-white font-semibold capitalize">{activeOrder.status.replace('_', ' ')}</span>
+                    Status: <span className="text-white font-semibold capitalize">
+                      {(() => {
+                        if (activeOrder.status === 'awaiting_pickup') return 'Order is ready for pickup';
+                        if (activeOrder.status === 'driver_accepted') return 'Rider accepted & heading to store';
+                        if (activeOrder.status === 'picked_up') return 'Order is picked up by rider';
+                        if (activeOrder.status === 'out_for_delivery') return 'Rider is out delivering (On the way)';
+                        return activeOrder.status.replace('_', ' ');
+                      })()}
+                    </span>
                   </p>
                 </div>
                 <div className="flex gap-2">
@@ -824,7 +866,7 @@ export default function CustomerDashboard() {
                     onClick={() => {
                       setShowChat(!showChat);
                       // Auto-switch partner to delivery if assigned and store is prepared
-                      if (activeOrder.delivery_partner_id && ['awaiting_pickup', 'out_for_delivery'].includes(activeOrder.status)) {
+                      if (activeOrder.delivery_partner_id && ['awaiting_pickup', 'driver_accepted', 'picked_up', 'out_for_delivery'].includes(activeOrder.status)) {
                         setChatPartner('delivery');
                       } else {
                         setChatPartner('seller');
@@ -853,25 +895,31 @@ export default function CustomerDashboard() {
 
               {/* Progress Bar */}
               <div className="mb-6">
-                <div className="flex justify-between text-[10px] font-bold text-zinc-500 uppercase mb-2">
+                <div className="flex justify-between text-[9px] md:text-[10px] font-bold text-zinc-500 uppercase mb-2 overflow-x-auto whitespace-nowrap scrollbar-none gap-2">
                   <span>Placed</span>
                   <span>Preparing</span>
+                  <span>Ready</span>
+                  <span>Rider Accepted</span>
                   <span>Picked Up</span>
+                  <span>On the Way</span>
                   <span>Delivered</span>
                 </div>
                 <div className="w-full h-2.5 rounded-full bg-zinc-800 relative overflow-hidden">
                   {(() => {
-                    const statusProgress: Record<string, string> = {
-                      placed: 'w-[10%]',
-                      accepted: 'w-[25%]',
-                      preparing: 'w-[50%]',
-                      awaiting_pickup: 'w-[75%]',
-                      out_for_delivery: 'w-[90%]',
-                      delivered: 'w-[100%]',
-                      cancelled: 'w-[0%]'
+                    const getProgressWidth = () => {
+                      if (activeOrder.status === 'cancelled') return 'w-0';
+                      if (activeOrder.status === 'placed') return 'w-[10%]';
+                      if (activeOrder.status === 'accepted') return 'w-[25%]';
+                      if (activeOrder.status === 'preparing') return 'w-[40%]';
+                      if (activeOrder.status === 'awaiting_pickup') return 'w-[52%]';
+                      if (activeOrder.status === 'driver_accepted') return 'w-[68%]';
+                      if (activeOrder.status === 'picked_up') return 'w-[80%]';
+                      if (activeOrder.status === 'out_for_delivery') return 'w-[92%]';
+                      if (activeOrder.status === 'delivered') return 'w-full';
+                      return 'w-0';
                     };
                     const color = activeOrder.status === 'cancelled' ? 'bg-red-500' : 'bg-yellow-500';
-                    return <div className={`h-full ${statusProgress[activeOrder.status] || 'w-0'} ${color} transition-all duration-500`} />;
+                    return <div className={`h-full ${getProgressWidth()} ${color} transition-all duration-500`} />;
                   })()}
                 </div>
               </div>
@@ -945,56 +993,152 @@ export default function CustomerDashboard() {
                   </div>
                 </div>
 
-                {/* Details HUD */}
-                <div className="p-4 rounded-xl flex flex-col justify-between" style={{ background: '#222222', border: '1px solid #2E2E2E' }}>
-                  <div className="space-y-3.5 text-xs">
-                    <div>
-                      <strong className="block text-zinc-500 font-extrabold uppercase">Delivery Destination</strong>
-                      <p className="text-zinc-200 font-semibold mt-0.5">{activeOrder.delivery_address}</p>
-                    </div>
-                    <div className="border-t border-zinc-800 pt-3">
-                      <strong className="block text-zinc-500 font-extrabold uppercase">Rider Assignment</strong>
-                      {activeOrder.delivery_partner_id ? (
-                        <div className="flex items-center gap-2 mt-1">
-                          <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
-                          <p className="text-zinc-200 font-medium">Assigned Rider (ID: <span className="font-mono text-zinc-400">{activeOrder.delivery_partner_id.slice(0, 8)}</span>)</p>
-                        </div>
-                      ) : (
-                        <p className="text-yellow-500 font-semibold mt-1 flex items-center gap-1">
-                          <Loader2 size={12} className="animate-spin" /> Store preparing order. Locating nearest partner...
-                        </p>
-                      )}
+                {/* Details & Timeline HUD */}
+                <div className="flex flex-col gap-5">
+                  {/* Shipment Status Timeline */}
+                  <div className="p-4 rounded-xl space-y-4 border border-zinc-800" style={{ background: '#222222' }}>
+                    <h3 className="text-xs font-black uppercase text-yellow-500 tracking-wider flex items-center gap-1.5 border-b border-zinc-800 pb-2 mb-1">
+                      <Zap size={14} className="text-yellow-500 animate-pulse" /> Live Status Timeline
+                    </h3>
+                    <div className="space-y-4 pt-1">
+                      {(() => {
+                        const isPlaced = activeOrder.status === 'placed';
+                        const isAccepted = activeOrder.status === 'accepted';
+                        const isPreparing = activeOrder.status === 'preparing';
+                        const isAwaiting = activeOrder.status === 'awaiting_pickup';
+                        const isDriverAccepted = activeOrder.status === 'driver_accepted';
+                        const isPickedUp = activeOrder.status === 'picked_up';
+                        const isOut = activeOrder.status === 'out_for_delivery';
+                        const isDelivered = activeOrder.status === 'delivered';
+
+                        const steps = [
+                          { 
+                            title: 'Order Placed', 
+                            desc: 'Your order has been received by the merchant',
+                            status: (!isPlaced) ? 'completed' as const : 'active' as const
+                          },
+                          { 
+                            title: 'Preparing Order', 
+                            desc: 'Merchant is preparing your items',
+                            status: (isPreparing || isAwaiting || isDriverAccepted || isPickedUp || isOut || isDelivered) ? 'completed' as const : (isAccepted ? 'active' as const : 'pending' as const)
+                          },
+                          { 
+                            title: 'Ready for Pickup', 
+                            desc: 'Order is ready for dispatch',
+                            status: (isDriverAccepted || isPickedUp || isOut || isDelivered) ? 'completed' as const : (isAwaiting ? 'active' as const : 'pending' as const)
+                          },
+                          { 
+                            title: 'Rider Heading to Store', 
+                            desc: 'Rider accepted & heading to merchant',
+                            status: (isPickedUp || isOut || isDelivered) ? 'completed' as const : (isDriverAccepted ? 'active' as const : 'pending' as const)
+                          },
+                          { 
+                            title: 'Rider Picked Up', 
+                            desc: 'Rider has collected your items from merchant',
+                            status: (isOut || isDelivered) ? 'completed' as const : (isPickedUp ? 'active' as const : 'pending' as const)
+                          },
+                          { 
+                            title: 'On the Way', 
+                            desc: 'Rider is heading to your address',
+                            status: isDelivered ? 'completed' as const : (isOut ? 'active' as const : 'pending' as const)
+                          },
+                          { 
+                            title: 'Delivered', 
+                            desc: 'Package delivered successfully',
+                            status: isDelivered ? 'completed' as const : 'pending' as const
+                          }
+                        ];
+
+                        return steps.map((step, idx) => {
+                          let dotColor = 'border-zinc-700 bg-zinc-800 text-zinc-500';
+                          let textColor = 'text-zinc-500';
+                          let lineActive = false;
+
+                          if (step.status === 'completed') {
+                            dotColor = 'bg-yellow-500 border-yellow-500 text-black shadow-[0_0_8px_rgba(247,209,8,0.3)]';
+                            textColor = 'text-zinc-200 font-medium';
+                            lineActive = true;
+                          } else if (step.status === 'active') {
+                            dotColor = 'border-yellow-500 bg-yellow-500/10 text-yellow-500 animate-pulse shadow-[0_0_12px_rgba(247,209,8,0.4)]';
+                            textColor = 'text-yellow-500 font-bold';
+                          }
+
+                          return (
+                            <div key={idx} className="flex gap-3 relative">
+                              {idx < steps.length - 1 && (
+                                <div 
+                                  className={`absolute left-2.5 top-5 bottom-[-16px] w-[2px] transition-colors duration-500 ${
+                                    lineActive ? 'bg-yellow-500' : 'bg-zinc-800'
+                                  }`} 
+                                />
+                              )}
+                              <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center text-[10px] font-black z-10 ${dotColor}`}>
+                                {step.status === 'completed' ? (
+                                  <Check size={10} strokeWidth={3} />
+                                ) : idx + 1}
+                              </div>
+                              <div className="flex-1">
+                                <span className={`text-xs block ${textColor}`}>{step.title}</span>
+                                <span className="text-[10px] block text-zinc-500 leading-tight mt-0.5">{step.desc}</span>
+                              </div>
+                            </div>
+                          );
+                        });
+                      })()}
                     </div>
                   </div>
 
-                  <div className="border-t border-zinc-800 pt-3 mt-3 space-y-2 text-xs">
-                    {activeOrder.items_total && (
-                      <div className="flex justify-between items-center text-zinc-400">
-                        <span>Item Total</span>
-                        <span>{formatINR(activeOrder.items_total)}</span>
+                  {/* Details HUD */}
+                  <div className="p-4 rounded-xl flex flex-col justify-between" style={{ background: '#222222', border: '1px solid #2E2E2E' }}>
+                    <div className="space-y-3.5 text-xs">
+                      <div>
+                        <strong className="block text-zinc-500 font-extrabold uppercase">Delivery Destination</strong>
+                        <p className="text-zinc-200 font-semibold mt-0.5">{activeOrder.delivery_address}</p>
                       </div>
-                    )}
-                    {activeOrder.delivery_partner_fee && (
-                      <div className="flex justify-between items-center text-zinc-400">
-                        <span>Delivery partner fee</span>
-                        <span>{formatINR(activeOrder.delivery_partner_fee)}</span>
+                      <div className="border-t border-zinc-800 pt-3">
+                        <strong className="block text-zinc-500 font-extrabold uppercase">Rider Assignment</strong>
+                        {activeOrder.delivery_partner_id ? (
+                          <div className="flex items-center gap-2 mt-1">
+                            <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
+                            <p className="text-zinc-200 font-medium">Assigned Rider (ID: <span className="font-mono text-zinc-400">{activeOrder.delivery_partner_id.slice(0, 8)}</span>)</p>
+                          </div>
+                        ) : (
+                          <p className="text-yellow-500 font-semibold mt-1 flex items-center gap-1">
+                            <Loader2 size={12} className="animate-spin" /> Store preparing order. Locating nearest partner...
+                          </p>
+                        )}
                       </div>
-                    )}
-                    {activeOrder.small_cart_fee > 0 && (
-                      <div className="flex justify-between items-center text-zinc-400">
-                        <span>Small cart fee</span>
-                        <span>{formatINR(activeOrder.small_cart_fee)}</span>
+                    </div>
+
+                    <div className="border-t border-zinc-800 pt-3 mt-3 space-y-2 text-xs">
+                      {activeOrder.items_total && (
+                        <div className="flex justify-between items-center text-zinc-400">
+                          <span>Item Total</span>
+                          <span>{formatINR(activeOrder.items_total)}</span>
+                        </div>
+                      )}
+                      {activeOrder.delivery_partner_fee && (
+                        <div className="flex justify-between items-center text-zinc-400">
+                          <span>Delivery partner fee</span>
+                          <span>{formatINR(activeOrder.delivery_partner_fee)}</span>
+                        </div>
+                      )}
+                      {activeOrder.small_cart_fee > 0 && (
+                        <div className="flex justify-between items-center text-zinc-400">
+                          <span>Small cart fee</span>
+                          <span>{formatINR(activeOrder.small_cart_fee)}</span>
+                        </div>
+                      )}
+                      {activeOrder.handling_charge > 0 && (
+                        <div className="flex justify-between items-center text-zinc-400">
+                          <span>Handling charge</span>
+                          <span>{formatINR(activeOrder.handling_charge)}</span>
+                        </div>
+                      )}
+                      <div className="flex items-center justify-between font-bold border-t border-zinc-900 pt-2 mt-1">
+                        <span className="text-zinc-500 uppercase text-[10px]">Total Paid (via Razorpay)</span>
+                        <span className="text-sm font-extrabold text-white">{formatINR(activeOrder.total_amount)}</span>
                       </div>
-                    )}
-                    {activeOrder.handling_charge > 0 && (
-                      <div className="flex justify-between items-center text-zinc-400">
-                        <span>Handling charge</span>
-                        <span>{formatINR(activeOrder.handling_charge)}</span>
-                      </div>
-                    )}
-                    <div className="flex items-center justify-between font-bold border-t border-zinc-900 pt-2 mt-1">
-                      <span className="text-zinc-500 uppercase text-[10px]">Total Paid (via Razorpay)</span>
-                      <span className="text-sm font-extrabold text-white">{formatINR(activeOrder.total_amount)}</span>
                     </div>
                   </div>
                 </div>

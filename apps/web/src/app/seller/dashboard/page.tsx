@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { supabase } from '../../../lib/supabase';
 import { Product, Order, OrderStatus, CreateProductSchema, formatINR, DANTEWADA_CENTER } from '@kdlgoods/shared';
 import {
@@ -33,6 +34,7 @@ async function uploadProductImage(file: File, sellerId: string): Promise<string>
 }
 
 export default function SellerDashboard() {
+  const router = useRouter();
   const [products, setProducts] = useState<Product[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
   const [activeTab, setActiveTab] = useState<'orders' | 'catalog'>('orders');
@@ -100,15 +102,20 @@ export default function SellerDashboard() {
 
   useEffect(() => {
     fetchInitialData();
+  }, []);
+
+  useEffect(() => {
+    if (sellerId === '00000000-0000-0000-0000-000000000000') return;
 
     const ordersChannel = supabase
       .channel('seller-orders-changes')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, () => fetchOrders())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, () => fetchOrders(sellerId))
       .subscribe();
 
     const checkLocalInterval = setInterval(() => {
       const local = JSON.parse(localStorage.getItem('kdlgoods_orders') || '[]');
-      if (local.length > 0) setOrders(local);
+      const filtered = local.filter((o: any) => o.seller_id === sellerId);
+      setOrders(filtered);
       const localBal = localStorage.getItem('kdlgoods_seller_balance');
       if (localBal) setBalance(parseFloat(localBal));
     }, 1000);
@@ -117,7 +124,7 @@ export default function SellerDashboard() {
       supabase.removeChannel(ordersChannel);
       clearInterval(checkLocalInterval);
     };
-  }, []);
+  }, [sellerId]);
 
   // Chat & Track Synchronization effect
   useEffect(() => {
@@ -310,56 +317,75 @@ export default function SellerDashboard() {
     setLoading(true);
     try {
       const { data: { user } } = await supabase.auth.getUser();
-      if (user) {
-        setSellerId(user.id);
-        const { data: seller, error: sellerErr } = await supabase
-          .from('sellers')
-          .select('*')
-          .eq('id', user.id)
-          .single();
-
-        if (sellerErr || !seller) {
-          // Check local storage fallback
-          const localProfile = localStorage.getItem('kdlgoods_seller_profile');
-          if (localProfile) {
-            const parsed = JSON.parse(localProfile);
-            setStoreName(parsed.store_name);
-            setStoreNameInput(parsed.store_name);
-            setStoreDescInput(parsed.description || '');
-            setStoreAddressInput(parsed.address);
-            setStoreLngInput(parsed.lng || String(DANTEWADA_CENTER.longitude));
-            setStoreLatInput(parsed.lat || String(DANTEWADA_CENTER.latitude));
-            setIsStoreActive(parsed.is_active);
-            setHasStore(true);
-          } else {
-            setHasStore(false);
-          }
-        } else {
-          setStoreName(seller.store_name);
-          setStoreNameInput(seller.store_name);
-          setStoreDescInput(seller.description || '');
-          setStoreAddressInput(seller.address);
-          if (seller.location?.coordinates) {
-            setStoreLngInput(String(seller.location.coordinates[0]));
-            setStoreLatInput(String(seller.location.coordinates[1]));
-          }
-          setIsStoreActive(seller.is_active);
-          setHasStore(true);
-          setBalance(Number(seller.balance) || 0);
-          localStorage.setItem('kdlgoods_seller_balance', String(seller.balance || '0'));
-          localStorage.setItem('kdlgoods_store_active', String(seller.is_active));
-          localStorage.setItem('kdlgoods_seller_profile', JSON.stringify({
-            id: user.id,
-            store_name: seller.store_name,
-            description: seller.description,
-            address: seller.address,
-            lat: seller.location?.coordinates ? String(seller.location.coordinates[1]) : String(DANTEWADA_CENTER.latitude),
-            lng: seller.location?.coordinates ? String(seller.location.coordinates[0]) : String(DANTEWADA_CENTER.longitude),
-            is_active: seller.is_active
-          }));
-        }
+      if (!user) {
+        router.push('/auth/signin');
+        return;
       }
-      await Promise.all([fetchProducts(), fetchOrders()]);
+
+      // Verify user role
+      const { data: profile, error: profileErr } = await supabase
+        .from('profiles')
+        .select('role')
+        .eq('id', user.id)
+        .single();
+      const userRole = profile?.role || user.user_metadata?.role || 'customer';
+      if (userRole !== 'seller') {
+        if (userRole === 'delivery') {
+          router.push('/delivery/dashboard');
+        } else {
+          router.push('/customer/dashboard');
+        }
+        return;
+      }
+
+      setSellerId(user.id);
+      const { data: seller, error: sellerErr } = await supabase
+        .from('sellers')
+        .select('*')
+        .eq('id', user.id)
+        .single();
+
+      if (sellerErr || !seller) {
+        // Check local storage fallback
+        const localProfile = localStorage.getItem('kdlgoods_seller_profile');
+        if (localProfile) {
+          const parsed = JSON.parse(localProfile);
+          setStoreName(parsed.store_name);
+          setStoreNameInput(parsed.store_name);
+          setStoreDescInput(parsed.description || '');
+          setStoreAddressInput(parsed.address);
+          setStoreLngInput(parsed.lng || String(DANTEWADA_CENTER.longitude));
+          setStoreLatInput(parsed.lat || String(DANTEWADA_CENTER.latitude));
+          setIsStoreActive(parsed.is_active);
+          setHasStore(true);
+        } else {
+          setHasStore(false);
+        }
+      } else {
+        setStoreName(seller.store_name);
+        setStoreNameInput(seller.store_name);
+        setStoreDescInput(seller.description || '');
+        setStoreAddressInput(seller.address);
+        if (seller.location?.coordinates) {
+          setStoreLngInput(String(seller.location.coordinates[0]));
+          setStoreLatInput(String(seller.location.coordinates[1]));
+        }
+        setIsStoreActive(seller.is_active);
+        setHasStore(true);
+        setBalance(Number(seller.balance) || 0);
+        localStorage.setItem('kdlgoods_seller_balance', String(seller.balance || '0'));
+        localStorage.setItem('kdlgoods_store_active', String(seller.is_active));
+        localStorage.setItem('kdlgoods_seller_profile', JSON.stringify({
+          id: user.id,
+          store_name: seller.store_name,
+          description: seller.description,
+          address: seller.address,
+          lat: seller.location?.coordinates ? String(seller.location.coordinates[1]) : String(DANTEWADA_CENTER.latitude),
+          lng: seller.location?.coordinates ? String(seller.location.coordinates[0]) : String(DANTEWADA_CENTER.longitude),
+          is_active: seller.is_active
+        }));
+      }
+      await Promise.all([fetchProducts(user.id), fetchOrders(user.id)]);
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -436,20 +462,31 @@ export default function SellerDashboard() {
     }
   };
 
-  const fetchProducts = async () => {
-    const { data, error } = await supabase.from('products').select('*').order('created_at', { ascending: false });
+  const fetchProducts = async (currentSellerId = sellerId) => {
+    if (currentSellerId === '00000000-0000-0000-0000-000000000000') return;
+    const { data, error } = await supabase
+      .from('products')
+      .select('*')
+      .eq('seller_id', currentSellerId)
+      .order('created_at', { ascending: false });
     if (!error && data) setProducts(data);
     // On error: keep as empty array — no mock data
   };
 
-  const fetchOrders = async () => {
+  const fetchOrders = async (currentSellerId = sellerId) => {
+    if (currentSellerId === '00000000-0000-0000-0000-000000000000') return;
     try {
-      const { data, error } = await supabase.from('orders').select('*, profiles(full_name)').order('created_at', { ascending: false });
+      const { data, error } = await supabase
+        .from('orders')
+        .select('*, profiles(full_name)')
+        .eq('seller_id', currentSellerId)
+        .order('created_at', { ascending: false });
       if (error) throw error;
       setOrders(data || []);
     } catch {
       const local = JSON.parse(localStorage.getItem('kdlgoods_orders') || '[]');
-      setOrders(local);
+      const filtered = local.filter((o: any) => o.seller_id === currentSellerId);
+      setOrders(filtered);
     }
   };
 
@@ -955,6 +992,8 @@ export default function SellerDashboard() {
                       accepted:        { bg: 'rgba(247,209,8,0.1)',   text: '#F7D108' },
                       preparing:       { bg: 'rgba(245,158,11,0.1)',  text: '#F59E0B' },
                       awaiting_pickup: { bg: 'rgba(249,115,22,0.1)',  text: '#F97316' },
+                      driver_accepted: { bg: 'rgba(99,102,241,0.1)',  text: '#6366F1' },
+                      picked_up:       { bg: 'rgba(168,85,247,0.1)',  text: '#A855F7' },
                       out_for_delivery:{ bg: 'rgba(34,197,94,0.1)',   text: '#22C55E' },
                       delivered:       { bg: 'rgba(34,197,94,0.08)',  text: '#16A34A' },
                       cancelled:       { bg: 'rgba(239,68,68,0.1)',   text: '#EF4444' },
@@ -1040,6 +1079,26 @@ export default function SellerDashboard() {
                               {order.delivery_partner_id && (
                                 <p className="text-[11px]" style={{ color: '#8A8A8A' }}>Rider ID: <span className="font-mono text-white">{order.delivery_partner_id}</span></p>
                               )}
+                            </div>
+                          )}
+                          {order.status === 'driver_accepted' && (
+                            <div className="space-y-1.5">
+                              <div className="p-2.5 rounded-lg flex items-center gap-2" style={{ background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.2)' }}>
+                                <Loader2 className="animate-spin" size={14} style={{ color: '#6366F1' }} />
+                                <span className="text-xs font-semibold" style={{ color: '#6366F1' }}>
+                                  Rider accepted! Heading to store.
+                                </span>
+                              </div>
+                            </div>
+                          )}
+                          {order.status === 'picked_up' && (
+                            <div className="space-y-1.5">
+                              <div className="p-2.5 rounded-lg flex items-center gap-2" style={{ background: 'rgba(168,85,247,0.08)', border: '1px solid rgba(168,85,247,0.2)' }}>
+                                <Check size={14} style={{ color: '#A855F7' }} />
+                                <span className="text-xs font-bold" style={{ color: '#A855F7' }}>
+                                  Order picked up by rider.
+                                </span>
+                              </div>
                             </div>
                           )}
                           {order.status === 'out_for_delivery' && (

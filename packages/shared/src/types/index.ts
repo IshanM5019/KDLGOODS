@@ -66,7 +66,7 @@ export interface CartItem {
   product?: Product;
 }
 
-export type OrderStatus = 'placed' | 'accepted' | 'preparing' | 'awaiting_pickup' | 'out_for_delivery' | 'delivered' | 'cancelled';
+export type OrderStatus = 'placed' | 'accepted' | 'preparing' | 'awaiting_pickup' | 'driver_accepted' | 'picked_up' | 'out_for_delivery' | 'delivered' | 'cancelled';
 
 export interface Order {
   id: string;
