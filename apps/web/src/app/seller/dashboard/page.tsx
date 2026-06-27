@@ -37,7 +37,7 @@ export default function SellerDashboard() {
   const router = useRouter();
   const [products, setProducts] = useState<Product[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
-  const [activeTab, setActiveTab] = useState<'orders' | 'catalog'>('orders');
+  const [activeTab, setActiveTab] = useState<'orders' | 'catalog' | 'profile'>('orders');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [balance, setBalance] = useState(() => {
@@ -92,6 +92,17 @@ export default function SellerDashboard() {
     return true;
   });
   const [userPhone, setUserPhone] = useState<string | null>(null);
+  const [profileName, setProfileName] = useState('');
+  const [profileAvatarUrl, setProfileAvatarUrl] = useState('');
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [securitySuccess, setSecuritySuccess] = useState<string | null>(null);
+  const [securityError, setSecurityError] = useState<string | null>(null);
+  const [profileSuccess, setProfileSuccess] = useState<string | null>(null);
+  const [profileError, setProfileError] = useState<string | null>(null);
+  const [notifEmail, setNotifEmail] = useState(true);
+  const [notifPush, setNotifPush] = useState(true);
 
   useEffect(() => {
     if (activeChatOrderId) {
@@ -290,6 +301,109 @@ export default function SellerDashboard() {
     }
   };
 
+  const handleProfileSave = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setProfileError(null);
+    setProfileSuccess(null);
+
+    if (!profileName.trim() || !userPhone) {
+      setProfileError('Name and phone number are required.');
+      return;
+    }
+    if (userPhone.replace(/[^0-9]/g, '').length < 10) {
+      setProfileError('Please enter a valid 10-digit mobile number.');
+      return;
+    }
+
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('Not logged in');
+
+      const { error } = await supabase
+        .from('profiles')
+        .update({
+          full_name: profileName,
+          phone_number: userPhone,
+          avatar_url: profileAvatarUrl,
+        })
+        .eq('id', user.id);
+
+      if (error) throw error;
+      setProfileSuccess('Profile saved successfully!');
+    } catch (err: any) {
+      setProfileError(err.message || 'Failed to update profile.');
+    }
+  };
+
+  const handleAvatarFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.files?.[0]) return;
+    const file = e.target.files[0];
+    setUploadingAvatar(true);
+    setProfileError(null);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('Not logged in');
+
+      const fileExt = file.name.split('.').pop();
+      const fileName = `${user.id}-${Math.random()}.${fileExt}`;
+      const filePath = `avatars/${fileName}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from('avatars')
+        .upload(filePath, file);
+
+      if (uploadError) throw uploadError;
+
+      const { data: { publicUrl } } = supabase.storage
+        .from('avatars')
+        .getPublicUrl(filePath);
+
+      setProfileAvatarUrl(publicUrl);
+      
+      // Update DB directly
+      await supabase
+        .from('profiles')
+        .update({ avatar_url: publicUrl })
+        .eq('id', user.id);
+
+      setProfileSuccess('Profile picture uploaded successfully!');
+    } catch (err: any) {
+      console.warn('Storage bucket uploads are offline/unconfigured. Simulating with local preview URL.', err);
+      const mockUrl = URL.createObjectURL(file);
+      setProfileAvatarUrl(mockUrl);
+      setProfileSuccess('Preview updated (local view only).');
+    } finally {
+      setUploadingAvatar(false);
+    }
+  };
+
+  const handlePasswordUpdate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSecurityError(null);
+    setSecuritySuccess(null);
+
+    if (!newPassword) {
+      setSecurityError('New password cannot be empty.');
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setSecurityError('Passwords do not match.');
+      return;
+    }
+
+    try {
+      const { error } = await supabase.auth.updateUser({
+        password: newPassword,
+      });
+      if (error) throw error;
+      setSecuritySuccess('Password updated successfully!');
+      setNewPassword('');
+      setConfirmPassword('');
+    } catch (err: any) {
+      setSecurityError(err.message || 'Failed to update password.');
+    }
+  };
+
   const handleToggleStoreActive = async () => {
     const nextVal = !isStoreActive;
     setIsStoreActive(nextVal);
@@ -326,11 +440,13 @@ export default function SellerDashboard() {
       // Verify user role
       const { data: profile, error: profileErr } = await supabase
         .from('profiles')
-        .select('role, phone_number')
+        .select('role, phone_number, full_name, avatar_url')
         .eq('id', user.id)
         .single();
       const userRole = profile?.role || user.user_metadata?.role || 'customer';
       setUserPhone(profile?.phone_number || null);
+      setProfileName(profile?.full_name || '');
+      setProfileAvatarUrl(profile?.avatar_url || '');
       if (userRole !== 'seller') {
         if (userRole === 'delivery') {
           router.push('/delivery/dashboard');
@@ -763,6 +879,182 @@ export default function SellerDashboard() {
         </div>
       ) : (
         <>
+          {activeTab === 'profile' && (
+            <div className="max-w-4xl mx-auto space-y-6">
+              {/* Profile details */}
+              <div className="rounded-xl p-6 space-y-6" style={{ background: '#1A1A1A', border: '1px solid #2E2E2E' }}>
+                <h3 className="text-lg font-bold text-yellow-500 uppercase tracking-wider">Merchant Profile Settings</h3>
+                
+                <form onSubmit={handleProfileSave} className="space-y-4">
+                  {/* Avatar Upload */}
+                  <div className="flex items-center gap-4 p-4 rounded-xl bg-zinc-900 border border-zinc-800">
+                    <div className="relative w-20 h-20 rounded-full overflow-hidden bg-zinc-800 flex items-center justify-center border border-zinc-700">
+                      {profileAvatarUrl ? (
+                        <img src={profileAvatarUrl} alt="Avatar" className="w-full h-full object-cover" />
+                      ) : (
+                        <Store size={28} className="text-zinc-500" />
+                      )}
+                      {uploadingAvatar && (
+                        <div className="absolute inset-0 bg-black/70 flex items-center justify-center">
+                          <Loader2 className="animate-spin text-yellow-500" size={20} />
+                        </div>
+                      )}
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-zinc-300 cursor-pointer hover:text-yellow-500 transition">
+                        Change Merchant Logo / Avatar
+                        <input
+                          type="file"
+                          accept="image/*"
+                          className="hidden"
+                          onChange={handleAvatarFileChange}
+                        />
+                      </label>
+                      <p className="text-[10px] text-zinc-500 mt-1">PNG, JPG up to 2MB. Your logo is visible to customers browsing stores.</p>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-semibold text-zinc-400 mb-1.5">Owner / Merchant Name</label>
+                      <input
+                        type="text"
+                        required
+                        className="input"
+                        value={profileName}
+                        onChange={e => setProfileName(e.target.value)}
+                        placeholder="Owner Name"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-zinc-400 mb-1.5">Mobile Contact Number (Compulsory)</label>
+                      <input
+                        type="tel"
+                        required
+                        className="input"
+                        value={userPhone || ''}
+                        onChange={e => setUserPhone(e.target.value)}
+                        placeholder="9876543210"
+                      />
+                    </div>
+                  </div>
+
+                  {profileError && (
+                    <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-xs text-center">
+                      {profileError}
+                    </div>
+                  )}
+                  {profileSuccess && (
+                    <div className="p-3 rounded-lg bg-green-500/10 border border-green-500/20 text-green-400 text-xs text-center">
+                      {profileSuccess}
+                    </div>
+                  )}
+
+                  <button
+                    type="submit"
+                    className="btn-primary text-xs py-2 px-6 font-black uppercase tracking-wider"
+                  >
+                    Save Personal Profile
+                  </button>
+                </form>
+              </div>
+
+              {/* Security Credentials */}
+              <div className="rounded-xl p-6 space-y-6" style={{ background: '#1A1A1A', border: '1px solid #2E2E2E' }}>
+                <h3 className="text-lg font-bold text-yellow-500 uppercase tracking-wider">Change Account Password</h3>
+                
+                <form onSubmit={handlePasswordUpdate} className="space-y-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-semibold text-zinc-400 mb-1.5">New Password</label>
+                      <input
+                        type="password"
+                        required
+                        className="input"
+                        value={newPassword}
+                        onChange={e => setNewPassword(e.target.value)}
+                        placeholder="••••••••"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-zinc-400 mb-1.5">Confirm Password</label>
+                      <input
+                        type="password"
+                        required
+                        className="input"
+                        value={confirmPassword}
+                        onChange={e => setConfirmPassword(e.target.value)}
+                        placeholder="••••••••"
+                      />
+                    </div>
+                  </div>
+
+                  {securityError && (
+                    <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-xs text-center">
+                      {securityError}
+                    </div>
+                  )}
+                  {securitySuccess && (
+                    <div className="p-3 rounded-lg bg-green-500/10 border border-green-500/20 text-green-400 text-xs text-center">
+                      {securitySuccess}
+                    </div>
+                  )}
+
+                  <button
+                    type="submit"
+                    className="py-2 px-6 bg-zinc-800 hover:bg-zinc-700 text-white font-bold text-xs rounded-lg transition"
+                  >
+                    Update Password
+                  </button>
+                </form>
+              </div>
+            </div>
+          )}
+
+          {/* Main Console Tab Switcher - always visible */}
+          <div className="flex border-b border-zinc-800 mb-6">
+            <button
+              onClick={() => setActiveTab('orders')}
+              className={`pb-3 px-6 text-sm font-bold border-b-2 transition flex items-center gap-2 ${
+                activeTab === 'orders'
+                  ? 'border-yellow-500 text-yellow-500'
+                  : 'border-transparent text-zinc-400 hover:text-zinc-200'
+              }`}
+            >
+              <Clock size={16} />
+              <span>Live Orders</span>
+              {orders.filter(o => ['placed', 'accepted', 'preparing'].includes(o.status)).length > 0 && (
+                <span className="bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full animate-pulse">
+                  {orders.filter(o => ['placed', 'accepted', 'preparing'].includes(o.status)).length}
+                </span>
+              )}
+            </button>
+            <button
+              onClick={() => setActiveTab('catalog')}
+              className={`pb-3 px-6 text-sm font-bold border-b-2 transition flex items-center gap-2 ${
+                activeTab === 'catalog'
+                  ? 'border-yellow-500 text-yellow-500'
+                  : 'border-transparent text-zinc-400 hover:text-zinc-200'
+              }`}
+            >
+              <ShoppingBag size={16} />
+              <span>Inventory Catalog</span>
+            </button>
+            <button
+              onClick={() => setActiveTab('profile')}
+              className={`pb-3 px-6 text-sm font-bold border-b-2 transition flex items-center gap-2 ${
+                activeTab === 'profile'
+                  ? 'border-yellow-500 text-yellow-500'
+                  : 'border-transparent text-zinc-400 hover:text-zinc-200'
+              }`}
+            >
+              <Settings size={16} />
+              <span>Profile &amp; Settings</span>
+            </button>
+          </div>
+
+          {activeTab !== 'profile' && (
+            <>
           {/* Pending Orders Flash Banner */}
           {orders.some(o => o.status === 'placed') && (
             <div className="mb-5 p-4 rounded-xl flex items-center justify-between animate-pulse" style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.25)' }}>
@@ -803,36 +1095,7 @@ export default function SellerDashboard() {
             </div>
           </div>
 
-          {/* Mobile Tab Switcher */}
-          <div className="flex border-b border-zinc-800 mb-6 lg:hidden">
-            <button
-              onClick={() => setActiveTab('orders')}
-              className={`pb-3 px-6 text-sm font-bold border-b-2 transition flex items-center gap-2 ${
-                activeTab === 'orders'
-                  ? 'border-yellow-500 text-yellow-500'
-                  : 'border-transparent text-zinc-400 hover:text-zinc-200'
-              }`}
-            >
-              <Clock size={16} />
-              <span>Live Orders</span>
-              {orders.filter(o => ['placed', 'accepted', 'preparing'].includes(o.status)).length > 0 && (
-                <span className="bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full animate-pulse">
-                  {orders.filter(o => ['placed', 'accepted', 'preparing'].includes(o.status)).length}
-                </span>
-              )}
-            </button>
-            <button
-              onClick={() => setActiveTab('catalog')}
-              className={`pb-3 px-6 text-sm font-bold border-b-2 transition flex items-center gap-2 ${
-                activeTab === 'catalog'
-                  ? 'border-yellow-500 text-yellow-500'
-                  : 'border-transparent text-zinc-400 hover:text-zinc-200'
-              }`}
-            >
-              <ShoppingBag size={16} />
-              <span>Inventory Catalog</span>
-            </button>
-          </div>
+
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             {/* Catalog Manager */}
@@ -1151,6 +1414,8 @@ export default function SellerDashboard() {
               </div>
             </div>
           </div>
+            </>
+          )}
         </>
       )}
 
