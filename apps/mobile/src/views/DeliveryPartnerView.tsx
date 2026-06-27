@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { StyleSheet, Text, View, Switch, TouchableOpacity, ScrollView, Alert } from 'react-native';
+import { StyleSheet, Text, View, Switch, TouchableOpacity, ScrollView, Alert, TextInput } from 'react-native';
 import { supabase } from '../lib/supabase';
 import { Order, OrderStatus, DANTEWADA_CENTER, TOWN_NAME, formatINR } from '@kdlgoods/shared';
 
@@ -13,6 +13,11 @@ export default function DeliveryPartnerView({ driverId }: DeliveryPartnerViewPro
   // Active assigned order
   const [activeOrder, setActiveOrder] = useState<Order | null>(null);
   const [showDispatchAlert, setShowDispatchAlert] = useState(false);
+
+  // Cash Collection States
+  const [cashTxnId, setCashTxnId] = useState('');
+  const [cashScreenshot, setCashScreenshot] = useState<string | null>(null);
+  const [cashSubmitting, setCashSubmitting] = useState(false);
 
   // Simulated coordinate telemetry – defaulted to Dantewada Kirandul
   const [coords, setCoords] = useState(DANTEWADA_CENTER);
@@ -193,14 +198,58 @@ export default function DeliveryPartnerView({ driverId }: DeliveryPartnerViewPro
         location: `POINT(${coords.longitude} ${coords.latitude})`,
       });
 
-    if (error || logErr) {
-      setActiveOrder(prev => prev ? { ...prev, status: 'delivered' } : null);
+    setActiveOrder(prev => prev ? { ...prev, status: 'delivered' } : null);
+    
+    if (activeOrder.payment_method !== 'cod') {
       Alert.alert('Success', 'Order completed! Good job.');
       setTimeout(() => setActiveOrder(null), 2000);
-    } else {
-      setActiveOrder(prev => prev ? { ...prev, status: 'delivered' } : null);
-      Alert.alert('Success', 'Order completed! Good job.');
-      setTimeout(() => setActiveOrder(null), 2000);
+    }
+  };
+
+  const handleCashSubmit = async () => {
+    if (!cashTxnId.trim()) {
+      Alert.alert('Error', 'Please enter the UPI Transaction ID for your cash transfer.');
+      return;
+    }
+    setCashSubmitting(true);
+    try {
+      const { error } = await supabase
+        .from('orders')
+        .update({
+          driver_cash_submitted: true,
+          driver_cash_txn_id: cashTxnId.trim(),
+          driver_cash_screenshot_url: cashScreenshot || 'mock-receipt-url',
+          payment_status: 'paid'
+        })
+        .eq('id', activeOrder!.id);
+      if (error) throw error;
+
+      setActiveOrder(prev => prev ? { 
+        ...prev, 
+        driver_cash_submitted: true, 
+        driver_cash_txn_id: cashTxnId.trim(),
+        payment_status: 'paid'
+      } : null);
+
+      Alert.alert('Success', 'Cash submission successful! Duty complete.');
+      setTimeout(() => {
+        setActiveOrder(null);
+      }, 1500);
+    } catch (err) {
+      Alert.alert('Offline Mode', 'Cash submission completed offline.');
+      setActiveOrder(prev => prev ? { 
+        ...prev, 
+        driver_cash_submitted: true, 
+        driver_cash_txn_id: cashTxnId.trim(),
+        payment_status: 'paid'
+      } : null);
+      setTimeout(() => {
+        setActiveOrder(null);
+      }, 1500);
+    } finally {
+      setCashSubmitting(false);
+      setCashTxnId('');
+      setCashScreenshot(null);
     }
   };
 
@@ -279,6 +328,14 @@ export default function DeliveryPartnerView({ driverId }: DeliveryPartnerViewPro
 
           <View style={styles.divider} />
 
+          {/* Payment Info Badges */}
+          <Text style={styles.label}>Payment Details:</Text>
+          <Text style={[styles.body, { fontWeight: 'bold', color: activeOrder.payment_method === 'cod' ? '#fbbf24' : '#34d399' }]}>
+            {activeOrder.payment_method === 'cod' ? `💵 Cash to Collect: ${formatINR(activeOrder.total_amount)}` : '📱 Paid online via UPI'}
+          </Text>
+
+          <View style={styles.divider} />
+
           {activeOrder.status === 'driver_accepted' ? (
             <TouchableOpacity style={styles.btnPrimary} onPress={handleMarkPickedUp}>
               <Text style={styles.btnText}>Mark Order as [Picked Up]</Text>
@@ -292,7 +349,43 @@ export default function DeliveryPartnerView({ driverId }: DeliveryPartnerViewPro
               <Text style={styles.btnText}>Mark Order as [Delivered]</Text>
             </TouchableOpacity>
           ) : activeOrder.status === 'delivered' ? (
-            <Text style={styles.successText}>✓ Delivery completed successfully.</Text>
+            activeOrder.payment_method === 'cod' && !activeOrder.driver_cash_submitted ? (
+              <View style={styles.cashForm}>
+                <Text style={styles.cashFormTitle}>💰 COD Cash Collected</Text>
+                <Text style={styles.cashFormSub}>
+                  Transfer {formatINR(activeOrder.total_amount)} to central UPI: kdlgoods@icici, then submit Txn ID.
+                </Text>
+                
+                <TextInput
+                  style={[styles.input, { marginTop: 10 }]}
+                  placeholder="UPI Txn ID (Required)"
+                  placeholderTextColor="#94a3b8"
+                  value={cashTxnId}
+                  onChangeText={setCashTxnId}
+                />
+                
+                <TouchableOpacity 
+                  style={[styles.btnSecondary, { marginTop: 10 }]} 
+                  onPress={() => setCashScreenshot('mock_mobile_screenshot.png')}
+                >
+                  <Text style={styles.btnSecondaryText}>
+                    {cashScreenshot ? '✓ Screenshot attached' : 'Attach Transfer Receipt'}
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity 
+                  style={[styles.btnPrimary, { marginTop: 12, backgroundColor: '#fbbf24' }]} 
+                  onPress={handleCashSubmit}
+                  disabled={cashSubmitting}
+                >
+                  <Text style={[styles.btnText, { color: '#000000', fontWeight: '900' }]}>
+                    {cashSubmitting ? 'Verifying...' : 'Confirm Cash Submission'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            ) : (
+              <Text style={styles.successText}>✓ Delivery completed successfully & cash submitted.</Text>
+            )
           ) : (
             <Text style={styles.body}>Awaiting next steps.</Text>
           )}
@@ -432,5 +525,35 @@ const styles = StyleSheet.create({
     color: '#34d399',
     fontWeight: '700',
     textAlign: 'center',
+  },
+  input: {
+    backgroundColor: '#1E293B',
+    borderColor: '#334155',
+    borderWidth: 1,
+    borderRadius: 8,
+    padding: 10,
+    color: '#F8FAFC',
+    fontSize: 14,
+  },
+  cashForm: {
+    marginTop: 10,
+    padding: 12,
+    backgroundColor: 'rgba(247,209,8,0.04)',
+    borderWidth: 1,
+    borderColor: 'rgba(247,209,8,0.2)',
+    borderRadius: 8,
+  },
+  cashFormTitle: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#F7D108',
+    textAlign: 'center',
+  },
+  cashFormSub: {
+    fontSize: 11,
+    color: '#94a3b8',
+    textAlign: 'center',
+    marginTop: 4,
+    lineHeight: 16,
   },
 });

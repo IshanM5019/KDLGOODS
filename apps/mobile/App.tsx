@@ -110,8 +110,12 @@ export default function App() {
   };
 
   const handleSignUp = async () => {
-    if (!email || !password || !fullName) {
-      setAuthError('Please fill in all required fields');
+    if (!email || !password || !fullName || !phoneNumber) {
+      setAuthError('Please fill in all required fields including Phone Number');
+      return;
+    }
+    if (phoneNumber.replace(/[^0-9]/g, '').length < 10) {
+      setAuthError('Please enter a valid 10-digit mobile number');
       return;
     }
     setLoadingAuth(true);
@@ -120,11 +124,12 @@ export default function App() {
       const { data, error } = await supabase.auth.signUp({
         email,
         password,
+        phone: phoneNumber,
         options: {
           data: {
             full_name: fullName,
             role: signUpRole,
-            phone_number: phoneNumber || undefined,
+            phone_number: phoneNumber,
           },
         },
       });
@@ -198,10 +203,10 @@ export default function App() {
                   </TouchableOpacity>
                 </View>
 
-                <Text style={styles.label}>PHONE NUMBER (OPTIONAL)</Text>
+                <Text style={styles.label}>PHONE NUMBER (REQUIRED)</Text>
                 <TextInput 
                   style={styles.input} 
-                  placeholder="e.g. +91 9999912345"
+                  placeholder="e.g. 9876543210"
                   placeholderTextColor={GREY}
                   keyboardType="phone-pad"
                   value={phoneNumber}

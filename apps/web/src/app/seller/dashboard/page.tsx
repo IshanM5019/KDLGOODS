@@ -91,6 +91,7 @@ export default function SellerDashboard() {
     }
     return true;
   });
+  const [userPhone, setUserPhone] = useState<string | null>(null);
 
   useEffect(() => {
     if (activeChatOrderId) {
@@ -325,10 +326,11 @@ export default function SellerDashboard() {
       // Verify user role
       const { data: profile, error: profileErr } = await supabase
         .from('profiles')
-        .select('role')
+        .select('role, phone_number')
         .eq('id', user.id)
         .single();
       const userRole = profile?.role || user.user_metadata?.role || 'customer';
+      setUserPhone(profile?.phone_number || null);
       if (userRole !== 'seller') {
         if (userRole === 'delivery') {
           router.push('/delivery/dashboard');
@@ -604,6 +606,16 @@ export default function SellerDashboard() {
 
   return (
     <div className="min-h-screen text-white p-4 md:p-6" style={{ backgroundColor: '#121212' }}>
+      {/* Compulsory Mobile Number Warning Banner */}
+      {!userPhone && (
+        <div className="mb-6 p-4 rounded-xl flex items-center justify-between text-xs font-semibold animate-pulse" style={{ background: 'rgba(239,68,68,0.15)', border: '1px solid rgba(239,68,68,0.3)', color: '#f87171' }}>
+          <div className="flex items-center gap-2">
+            <AlertCircle size={16} />
+            <span>Compulsory Mobile Contact Required! Please update your profile settings with a contact number.</span>
+          </div>
+        </div>
+      )}
+
       {/* Top Navbar */}
       <header className="flex justify-between items-center mb-6 p-4 rounded-xl" style={{ background: '#1A1A1A', border: '1px solid #2E2E2E' }}>
         <div className="flex items-center gap-3">
@@ -781,6 +793,14 @@ export default function SellerDashboard() {
                 {stat.icon}
               </div>
             ))}
+          </div>
+
+          {/* Daily Payout Settlement Banner */}
+          <div className="mb-6 p-4 rounded-xl flex items-center justify-between text-xs font-semibold" style={{ background: 'rgba(34,197,94,0.08)', border: '1px solid rgba(34,197,94,0.2)', color: '#4ADE80' }}>
+            <div className="flex items-center gap-2">
+              <BarChart2 size={16} />
+              <span>Daily Payout Settlement Schedule: Today's accumulated Store Revenue Balance will be settled to your bank account automatically tonight at 11:59 PM.</span>
+            </div>
           </div>
 
           {/* Mobile Tab Switcher */}
@@ -1045,6 +1065,16 @@ export default function SellerDashboard() {
                                 <span className="text-zinc-500">{formatINR(order.handling_charge)}</span>
                               </div>
                             )}
+                            <div className="flex justify-between border-t border-dashed border-zinc-800 pt-1.5 mt-1.5 text-[10px]">
+                              <div>
+                                <span className="text-zinc-500 font-bold block">PAYMENT METHOD</span>
+                                <span className="text-zinc-300 font-semibold uppercase">{order.payment_method || 'COD'}</span>
+                              </div>
+                              <div className="text-right">
+                                <span className="text-zinc-500 font-bold block">PAYMENT STATUS</span>
+                                <span className={`font-semibold uppercase ${order.payment_status === 'paid' ? 'text-green-400' : 'text-yellow-500'}`}>{order.payment_status || 'PENDING'}</span>
+                              </div>
+                            </div>
                           </div>
                           <div className="flex justify-between pt-1 border-t border-zinc-900 font-bold text-xs">
                             <span style={{ color: '#8A8A8A' }}>Customer Paid:</span>

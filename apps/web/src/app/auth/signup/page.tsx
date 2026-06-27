@@ -36,7 +36,7 @@ function SignupForm() {
       password,
       full_name: fullName,
       role,
-      phone_number: phone || null,
+      phone_number: phone,
     });
 
     if (!result.success) {
@@ -50,11 +50,13 @@ function SignupForm() {
       const { data, error } = await supabase.auth.signUp({
         email,
         password,
+        phone,
         options: {
           emailRedirectTo: `${window.location.origin}/auth/callback`,
           data: {
             role,
             full_name: fullName,
+            phone_number: phone,
           },
         },
       });
@@ -203,11 +205,12 @@ function SignupForm() {
         </div>
 
         <div>
-          <label style={{ display: 'block', fontSize: '0.9rem', fontWeight: 500, marginBottom: '0.5rem' }}>Phone Number (Optional)</label>
+          <label style={{ display: 'block', fontSize: '0.9rem', fontWeight: 500, marginBottom: '0.5rem' }}>Phone Number (Compulsory)</label>
           <input
             type="tel"
+            required
             className="input"
-            placeholder="+91 98765 43210"
+            placeholder="9876543210"
             value={phone}
             onChange={(e) => setPhone(e.target.value)}
           />

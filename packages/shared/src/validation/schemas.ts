@@ -10,7 +10,9 @@ export const SignUpSchema = z.object({
   password: z.string().min(6, 'Password must be at least 6 characters long'),
   full_name: z.string().min(2, 'Name must be at least 2 characters long'),
   role: z.enum(['customer', 'seller', 'delivery']),
-  phone_number: z.string().regex(/^\+?[1-9]\d{1,14}$/, 'Invalid phone number format').optional().nullable(),
+  phone_number: z.string()
+    .min(10, 'Mobile number must be at least 10 digits')
+    .regex(/^\+?[0-9]+$/, 'Mobile number must contain only digits'),
 });
 
 export const SignInSchema = z.object({

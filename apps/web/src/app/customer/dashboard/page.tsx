@@ -75,8 +75,11 @@ export default function CustomerDashboard() {
   const [checkingOut, setCheckingOut] = useState(false);
   const [checkoutSuccess, setCheckoutSuccess] = useState(false);
   const [showCheckoutDetails, setShowCheckoutDetails] = useState(false);
-  const [showRazorpaySandbox, setShowRazorpaySandbox] = useState(false);
-  const [razorpayOrderId, setRazorpayOrderId] = useState('');
+  const [paymentMethod, setPaymentMethod] = useState<'cod' | 'upi'>('cod');
+  const [upiTxnId, setUpiTxnId] = useState('');
+  const [upiScreenshot, setUpiScreenshot] = useState<string | null>(null);
+  const [showUpiGateway, setShowUpiGateway] = useState(false);
+  const [userPhone, setUserPhone] = useState<string | null>(null);
   const [paymentError, setPaymentError] = useState<string | null>(null);
   const [activeOrderTrackingId, setActiveOrderTrackingId] = useState<string | null>(() => {
     if (typeof window !== 'undefined') {
@@ -152,13 +155,13 @@ export default function CustomerDashboard() {
           return;
         }
 
-        // Verify role
         const { data: profile, error: profileErr } = await supabase
           .from('profiles')
-          .select('role')
+          .select('role, phone_number')
           .eq('id', user.id)
           .single();
         const userRole = profile?.role || user.user_metadata?.role || 'customer';
+        setUserPhone(profile?.phone_number || null);
         if (userRole !== 'customer') {
           if (userRole === 'seller') {
             router.push('/seller/dashboard');
@@ -574,26 +577,9 @@ export default function CustomerDashboard() {
   const handlingCharge = cartTotal > 0 ? 4 : 0;
   const grandTotal = cartTotal + deliveryPartnerFee + smallCartFee + handlingCharge;
 
-  const loadRazorpayScript = () => {
-    return new Promise((resolve) => {
-      if (typeof window === 'undefined') {
-        resolve(false);
-        return;
-      }
-      if ((window as any).Razorpay) {
-        resolve(true);
-        return;
-      }
-      const script = document.createElement('script');
-      script.src = 'https://checkout.razorpay.com/v1/checkout.js';
-      script.async = true;
-      script.onload = () => resolve(true);
-      script.onerror = () => resolve(false);
-      document.body.appendChild(script);
-    });
-  };
+  // Razorpay script loading removed
 
-  const createOrder = async (razorpayPaymentId?: string) => {
+  const createOrder = async (method: 'cod' | 'upi', txnId: string | null = null, screenshotUrl: string | null = null) => {
     setCheckingOut(true);
 
     try {
@@ -608,6 +594,10 @@ export default function CustomerDashboard() {
         small_cart_fee: smallCartFee,
         delivery_address: 'Kirandul, Dantewada District, Chhattisgarh – 494556',
         delivery_location: `POINT(${userCoords.longitude} ${userCoords.latitude})`,
+        payment_method: method,
+        payment_status: method === 'upi' ? 'paid' : 'pending',
+        upi_transaction_id: txnId,
+        upi_screenshot_url: screenshotUrl,
       };
 
       const { data, error } = await supabase
@@ -636,6 +626,11 @@ export default function CustomerDashboard() {
         delivery_location: { latitude: userCoords.latitude, longitude: userCoords.longitude },
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
+        payment_method: method,
+        payment_status: method === 'upi' ? 'paid' : 'pending',
+        upi_transaction_id: txnId,
+        upi_screenshot_url: screenshotUrl,
+        driver_cash_submitted: false,
       };
       
       const existing = JSON.parse(localStorage.getItem('kdlgoods_orders') || '[]');
@@ -649,102 +644,32 @@ export default function CustomerDashboard() {
     }
   };
 
-  const initiatePaymentFlow = async () => {
+  const handleConfirmCheckout = async () => {
     setPaymentError(null);
-    setCheckingOut(true);
-
-    try {
-      // 1. Create order on Next.js server
-      const res = await fetch('/api/checkout/razorpay', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ amount: grandTotal })
-      });
-
-      if (!res.ok) {
-        throw new Error('Failed to initialize payment gateway order');
-      }
-
-      const orderData = await res.json();
-      
-      // If server generated a mock order (missing/empty credentials)
-      if (orderData.is_mock) {
-        setRazorpayOrderId(orderData.id);
-        setShowRazorpaySandbox(true);
-        setCheckingOut(false);
-        return;
-      }
-
-      // 2. Try loading script for real integration
-      const loaded = await loadRazorpayScript();
-      if (!loaded) {
-        // Falling back to Sandbox mode
-        setRazorpayOrderId(orderData.id || 'order_mock_' + Math.random().toString(36).substring(2, 10));
-        setShowRazorpaySandbox(true);
-        setCheckingOut(false);
-        return;
-      }
-
-      // 3. Launch Razorpay Checkout dialog
-      const keyId = process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID;
-      const options = {
-        key: keyId,
-        amount: orderData.amount,
-        currency: orderData.currency,
-        name: 'KDLGOODS',
-        description: 'Instant Hyperlocal Checkout',
-        image: '/icon-192.png',
-        order_id: orderData.id,
-        handler: async (response: any) => {
-          setCheckingOut(true);
-          // Verify payment
-          try {
-            const verifyRes = await fetch('/api/checkout/verify', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                razorpay_order_id: response.razorpay_order_id,
-                razorpay_payment_id: response.razorpay_payment_id,
-                razorpay_signature: response.razorpay_signature
-              })
-            });
-
-            const verifyData = await verifyRes.json();
-            if (verifyData.success) {
-              await createOrder(response.razorpay_payment_id);
-            } else {
-              setPaymentError('Signature verification failed. Payment was rejected.');
-              setCheckingOut(false);
-            }
-          } catch (err: any) {
-            setPaymentError(err.message || 'Payment verification failed');
-            setCheckingOut(false);
-          }
-        },
-        prefill: {
-          name: 'Customer test',
-          email: 'customer@kdlgoods.com',
-          contact: '9999999999'
-        },
-        theme: {
-          color: '#F7D108'
-        },
-        modal: {
-          ondismiss: () => {
-            setCheckingOut(false);
-          }
-        }
-      };
-
-      const rzp = new (window as any).Razorpay(options);
-      rzp.open();
-    } catch (err: any) {
-      console.warn('Real Razorpay initialization failed, launching Sandbox simulation overlay:', err);
-      // Sandbox fallback on failure
-      setRazorpayOrderId('order_mock_' + Math.random().toString(36).substring(2, 10));
-      setShowRazorpaySandbox(true);
-      setCheckingOut(false);
+    if (paymentMethod === 'cod') {
+      await createOrder('cod');
+    } else {
+      setShowUpiGateway(true);
     }
+  };
+
+  const handleUpiSubmit = async () => {
+    if (!upiTxnId.trim()) {
+      setPaymentError('UPI Transaction ID is required for verification');
+      return;
+    }
+    if (upiTxnId.trim().length < 8) {
+      setPaymentError('Please enter a valid UPI Transaction ID (minimum 8 characters)');
+      return;
+    }
+    
+    setPaymentError(null);
+    setShowUpiGateway(false);
+    // Simulate image upload preview URL
+    const screenshotUrl = upiScreenshot || 'https://images.unsplash.com/photo-1559526324-4b87b5e36e44?auto=format&fit=crop&w=300&q=80';
+    await createOrder('upi', upiTxnId.trim(), screenshotUrl);
+    setUpiTxnId('');
+    setUpiScreenshot(null);
   };
 
   if (loading || customerId === '00000000-0000-0000-0000-000000000000') {
@@ -783,6 +708,16 @@ export default function CustomerDashboard() {
           </span>
         </div>
       </header>
+
+      {/* Compulsory Mobile Number Banner */}
+      {!userPhone && (
+        <div className="mb-6 p-4 rounded-xl flex items-center justify-between text-xs font-semibold animate-pulse" style={{ background: 'rgba(239,68,68,0.15)', border: '1px solid rgba(239,68,68,0.3)', color: '#f87171' }}>
+          <div className="flex items-center gap-2">
+            <AlertTriangle size={16} />
+            <span>Compulsory Mobile Contact Required! Please update your profile settings with a phone number.</span>
+          </div>
+        </div>
+      )}
 
       {/* Main Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
@@ -1482,6 +1417,34 @@ export default function CustomerDashboard() {
                 <span className="text-base font-extrabold text-[#F7D108]">{formatINR(grandTotal)}</span>
               </div>
             </div>
+                 {/* Payment Method Selector */}
+            <div className="mt-5 border-t pt-4 space-y-3" style={{ borderColor: '#2E2E2E' }}>
+              <label className="block text-xs font-bold text-zinc-400 uppercase tracking-wider">Select Payment Method</label>
+              <div className="grid grid-cols-2 gap-3">
+                <button
+                  type="button"
+                  onClick={() => setPaymentMethod('cod')}
+                  className={`py-3 px-4 rounded-xl border text-xs font-bold text-center transition ${
+                    paymentMethod === 'cod'
+                      ? 'border-yellow-500 bg-yellow-500/10 text-yellow-500'
+                      : 'border-zinc-800 bg-zinc-900 text-zinc-400 hover:text-zinc-200'
+                  }`}
+                >
+                  💵 Cash on Delivery
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPaymentMethod('upi')}
+                  className={`py-3 px-4 rounded-xl border text-xs font-bold text-center transition ${
+                    paymentMethod === 'upi'
+                      ? 'border-yellow-500 bg-yellow-500/10 text-yellow-500'
+                      : 'border-zinc-800 bg-zinc-900 text-zinc-400 hover:text-zinc-200'
+                  }`}
+                >
+                  📱 Online UPI Pay
+                </button>
+              </div>
+            </div>
 
             {paymentError && (
               <div className="mt-4 p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-[11px] flex items-center gap-1.5">
@@ -1493,14 +1456,16 @@ export default function CustomerDashboard() {
             {/* Pay Button */}
             <div className="mt-6 flex flex-col gap-3">
               <button 
-                onClick={initiatePaymentFlow} 
+                onClick={handleConfirmCheckout} 
                 disabled={checkingOut} 
-                className="w-full btn-primary py-3 rounded-xl font-bold flex items-center justify-center gap-2 text-xs"
+                className="w-full btn-primary py-3 rounded-xl font-bold flex items-center justify-center gap-2 text-xs uppercase tracking-wider"
               >
                 {checkingOut ? (
-                  <><Loader2 className="animate-spin" size={16} /> Initializing payment...</>
+                  <><Loader2 className="animate-spin" size={16} /> Processing...</>
+                ) : paymentMethod === 'cod' ? (
+                  <>Place Order via COD ({formatINR(grandTotal)})</>
                 ) : (
-                  <>Pay {formatINR(grandTotal)} via Razorpay</>
+                  <>Proceed to UPI Payment ({formatINR(grandTotal)})</>
                 )}
               </button>
               
@@ -1515,80 +1480,105 @@ export default function CustomerDashboard() {
         </div>
       )}
 
-      {/* Razorpay Simulated Sandbox Gateway */}
-      {showRazorpaySandbox && (
-        <div className="fixed inset-0 bg-black/85 z-[60] flex items-center justify-center p-4">
-          <div className="w-full max-w-sm rounded-xl overflow-hidden shadow-2xl relative border border-zinc-800" style={{ background: '#121212', fontFamily: 'sans-serif' }}>
-            {/* Razorpay Brand Header */}
-            <div className="p-4 bg-[#1e2736] flex items-center justify-between border-b border-zinc-800">
-              <div className="flex items-center gap-2">
-                <div className="w-6 h-6 rounded bg-[#2e3e56] flex items-center justify-center text-[10px] font-black text-blue-400">rzp</div>
-                <div>
-                  <h4 className="text-[10px] font-black text-white uppercase tracking-wider">Razorpay Checkout</h4>
-                  <p className="text-[9px] text-zinc-400">Sandbox Test Mode</p>
-                </div>
+      {/* Central UPI Payment Gateway Modal */}
+      {showUpiGateway && (
+        <div className="fixed inset-0 bg-black/85 z-[60] flex items-center justify-center p-4 animate-fade-in">
+          <div className="w-full max-w-sm rounded-2xl overflow-hidden shadow-2xl relative border border-zinc-800 bg-[#121212] p-5 space-y-4">
+            
+            {/* Brand Header */}
+            <div className="text-center pb-3 border-b border-zinc-800">
+              <h4 className="text-sm font-black text-yellow-500 uppercase tracking-wider">KDL UPI Gateway</h4>
+              <p className="text-[10px] text-zinc-500 mt-0.5">Submit payment to the central account below</p>
+            </div>
+
+            {/* Bank details & QR simulation */}
+            <div className="p-4 rounded-xl border border-zinc-800 bg-zinc-900 text-xs space-y-2.5">
+              <div className="flex justify-between">
+                <span className="text-zinc-500">Beneficiary:</span>
+                <span className="text-zinc-200 font-semibold">KDL Goods Private Ltd.</span>
               </div>
-              <div className="text-right">
-                <span className="text-[9px] text-zinc-400 block font-semibold">Amount to Pay</span>
-                <span className="text-xs font-extrabold text-white">{formatINR(grandTotal)}</span>
+              <div className="flex justify-between">
+                <span className="text-zinc-500">Central UPI ID:</span>
+                <span className="text-yellow-500 font-mono font-bold">kdlgoods@icici</span>
+              </div>
+              <div className="flex justify-between border-t border-zinc-800/50 pt-2">
+                <span className="text-zinc-500">Bank Name:</span>
+                <span className="text-zinc-200 font-semibold">ICICI Bank</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-zinc-500">Account Number:</span>
+                <span className="text-zinc-200 font-mono font-semibold">123405006789</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-zinc-500">IFSC Code:</span>
+                <span className="text-zinc-200 font-mono font-semibold">ICIC0001234</span>
+              </div>
+              <div className="flex justify-between border-t border-zinc-800/50 pt-2 font-bold text-sm">
+                <span className="text-zinc-400">Total Payable:</span>
+                <span className="text-[#F7D108]">{formatINR(grandTotal)}</span>
               </div>
             </div>
 
-            {/* Content body */}
-            <div className="p-6 space-y-5 text-center">
-              <div className="w-12 h-12 rounded-full bg-blue-500/10 border border-blue-500/20 text-blue-400 flex items-center justify-center mx-auto animate-pulse">
-                <CreditCard size={22} />
-              </div>
-              
+            {/* Instructions */}
+            <p className="text-[10px] text-zinc-500 text-center leading-relaxed">
+              Open your favorite UPI app (GPay, PhonePe, Paytm, BHIM) and complete the transfer, then enter the 12-digit transaction ID below.
+            </p>
+
+            {/* Input Details */}
+            <div className="space-y-3 pt-1">
               <div>
-                <h3 className="font-bold text-white text-xs">Simulated Payment Gateway</h3>
-                <p className="text-[11px] text-zinc-500 mt-1 leading-relaxed">
-                  Real credentials are not set in <code>.env.local</code>.<br />
-                  Select a test result below to simulate the Razorpay transaction response.
-                </p>
+                <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-wide mb-1">UPI Transaction ID / Ref No (Required)</label>
+                <input 
+                  type="text" 
+                  required
+                  placeholder="e.g. 432109876543" 
+                  className="input py-2.5 text-xs text-center" 
+                  value={upiTxnId}
+                  onChange={e => setUpiTxnId(e.target.value)}
+                />
               </div>
 
-              {/* Order ID Tag */}
-              <div className="py-1.5 px-3 rounded-lg bg-zinc-900 border border-zinc-800 text-[10px] font-mono text-zinc-400 select-all">
-                ORDER ID: {razorpayOrderId}
-              </div>
-
-              {/* Action Buttons */}
-              <div className="grid grid-cols-2 gap-3 pt-2">
-                <button 
-                  onClick={async () => {
-                    setShowRazorpaySandbox(false);
-                    setCheckingOut(true);
-                    // Simulate successful API call response verification
-                    await new Promise(resolve => setTimeout(resolve, 800));
-                    await createOrder('pay_mock_' + Math.random().toString(36).substring(2, 10));
-                  }}
-                  className="py-2.5 rounded-lg bg-green-600 hover:bg-green-500 text-white text-xs font-bold transition shadow-lg shadow-green-900/20"
-                >
-                  ✓ Success
-                </button>
-                <button 
-                  onClick={() => {
-                    setShowRazorpaySandbox(false);
-                    setPaymentError('Payment failed or cancelled by user in Razorpay Simulator.');
-                  }}
-                  className="py-2.5 rounded-lg bg-red-600 hover:bg-red-500 text-white text-xs font-bold transition shadow-lg shadow-red-900/20"
-                >
-                  ✗ Failure
-                </button>
+              <div>
+                <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-wide mb-1.5">Upload Receipt Screenshot (Optional)</label>
+                <label className="flex items-center justify-center gap-2 cursor-pointer w-full rounded-lg p-2.5 bg-zinc-900 border border-dashed border-zinc-800 text-zinc-500 hover:text-zinc-300 transition">
+                  <span className="text-xs">{upiScreenshot ? `✓ ${upiScreenshot}` : "Click to attach screenshot"}</span>
+                  <input 
+                    type="file" 
+                    accept="image/*" 
+                    className="hidden" 
+                    onChange={e => {
+                      if (e.target.files?.[0]) {
+                        setUpiScreenshot(e.target.files[0].name);
+                      }
+                    }} 
+                  />
+                </label>
               </div>
             </div>
 
-            {/* Footer */}
-            <div className="p-3 bg-zinc-900 border-t border-zinc-800 text-center">
+            {/* Error Message */}
+            {paymentError && (
+              <div className="p-2.5 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-[10px] text-center">
+                {paymentError}
+              </div>
+            )}
+
+            {/* Actions */}
+            <div className="grid grid-cols-2 gap-3 pt-2">
               <button 
                 onClick={() => {
-                  setShowRazorpaySandbox(false);
-                  setCheckingOut(false);
+                  setShowUpiGateway(false);
+                  setPaymentError(null);
                 }}
-                className="text-[10px] text-zinc-500 hover:text-zinc-300 font-bold transition"
+                className="py-2.5 rounded-xl border border-zinc-800 text-zinc-400 text-xs font-bold transition hover:bg-zinc-900"
               >
-                Close Gateway
+                Go Back
+              </button>
+              <button 
+                onClick={handleUpiSubmit}
+                className="py-2.5 rounded-xl bg-yellow-500 text-black text-xs font-black transition hover:bg-yellow-400"
+              >
+                Submit Payment
               </button>
             </div>
           </div>

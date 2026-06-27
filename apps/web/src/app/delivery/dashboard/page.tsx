@@ -194,6 +194,11 @@ export default function DeliveryDashboard() {
     { id: 'TXN-9980', type: 'delivery', amount: 120, description: 'Order #884C (Rain Surge Pay)', date: 'Yesterday, 09:10 PM' }
   ]);
 
+  // Driver Cash-to-UPI Submission State
+  const [cashTxnId, setCashTxnId] = useState('');
+  const [cashScreenshot, setCashScreenshot] = useState<string | null>(null);
+  const [cashSubmitting, setCashSubmitting] = useState(false);
+
   // Contact States
   const [customerPhone, setCustomerPhone] = useState<string | null>(null);
   const [sellerPhone, setSellerPhone] = useState<string | null>(null);
@@ -272,6 +277,8 @@ export default function DeliveryDashboard() {
     }
   };
 
+  const [userPhone, setUserPhone] = useState<string | null>(null);
+
   useEffect(() => {
     // Request notification permission on mount
     if (typeof window !== 'undefined' && 'Notification' in window) {
@@ -291,10 +298,11 @@ export default function DeliveryDashboard() {
         // Verify role
         const { data: profile, error: profileErr } = await supabase
           .from('profiles')
-          .select('role')
+          .select('role, phone_number')
           .eq('id', user.id)
           .single();
         const userRole = profile?.role || user.user_metadata?.role || 'customer';
+        setUserPhone(profile?.phone_number || null);
         if (userRole !== 'delivery') {
           if (userRole === 'seller') {
             router.push('/seller/dashboard');
@@ -721,10 +729,76 @@ export default function DeliveryDashboard() {
     ]);
 
     setActiveOrder(prev => prev ? { ...prev, status: 'delivered' } : null);
-    setTimeout(() => {
-      setActiveOrder(null);
-      setSimStep(0);
-    }, 2000);
+    
+    if (activeOrder.payment_method !== 'cod') {
+      setTimeout(() => {
+        setActiveOrder(null);
+        setSimStep(0);
+      }, 2000);
+    }
+  };
+
+  const handleCashSubmit = async () => {
+    if (!cashTxnId.trim() || !activeOrder) {
+      alert('Please enter the UPI Transaction ID for your cash transfer.');
+      return;
+    }
+    setCashSubmitting(true);
+    try {
+      const { error } = await supabase
+        .from('orders')
+        .update({
+          driver_cash_submitted: true,
+          driver_cash_txn_id: cashTxnId.trim(),
+          driver_cash_screenshot_url: cashScreenshot || 'mock-receipt-url',
+          payment_status: 'paid'
+        })
+        .eq('id', activeOrder.id);
+      if (error) throw error;
+
+      setActiveOrder(prev => prev ? { 
+        ...prev, 
+        driver_cash_submitted: true, 
+        driver_cash_txn_id: cashTxnId.trim(),
+        payment_status: 'paid'
+      } : null);
+
+      setTimeout(() => {
+        setActiveOrder(null);
+        setSimStep(0);
+      }, 1500);
+    } catch (err) {
+      // Offline mock updates
+      const local = JSON.parse(localStorage.getItem('kdlgoods_orders') || '[]');
+      const updated = local.map((o: any) => {
+        if (o.id === activeOrder.id) {
+          return { 
+            ...o, 
+            driver_cash_submitted: true, 
+            driver_cash_txn_id: cashTxnId.trim(),
+            payment_status: 'paid'
+          };
+        }
+        return o;
+      });
+      localStorage.setItem('kdlgoods_orders', JSON.stringify(updated));
+      
+      setActiveOrder(prev => prev ? { 
+        ...prev, 
+        driver_cash_submitted: true, 
+        driver_cash_txn_id: cashTxnId.trim(),
+        payment_status: 'paid'
+      } : null);
+
+      setTimeout(() => {
+        setActiveOrder(null);
+        setSimStep(0);
+      }, 1500);
+    } finally {
+      setCashSubmitting(false);
+      setCashTxnId('');
+      setCashScreenshot(null);
+    }
   };
 
   const simulateMovement = () => {
@@ -940,6 +1014,16 @@ export default function DeliveryDashboard() {
       
       {/* Top Header */}
       <div className="w-full max-w-lg mx-auto px-4 pt-4">
+        {/* Compulsory Mobile Number Warning Banner */}
+        {!userPhone && (
+          <div className="mb-4 p-4 rounded-xl flex items-center justify-between text-xs font-semibold animate-pulse" style={{ background: 'rgba(239,68,68,0.15)', border: '1px solid rgba(239,68,68,0.3)', color: '#f87171' }}>
+            <div className="flex items-center gap-2">
+              <AlertTriangle size={16} />
+              <span>Compulsory Mobile Contact Required! Please update your settings with a contact number.</span>
+            </div>
+          </div>
+        )}
+
         <header className="flex justify-between items-center p-4 rounded-2xl" style={{ background: '#1A1A1A', border: '1px solid #2E2E2E' }}>
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl flex items-center justify-center bg-yellow-500/10 border border-yellow-500/20">
@@ -1169,6 +1253,22 @@ export default function DeliveryDashboard() {
                         <p className="text-zinc-200 font-semibold text-[11px] mt-0.5">{activeOrder.delivery_address}</p>
                       </div>
                     </div>
+
+                    {/* Payment Info Badge */}
+                    <div className="border-t border-zinc-800 pt-3.5 mt-2 flex justify-between items-center text-xs">
+                      <div>
+                        <strong className="block text-zinc-500 font-extrabold uppercase text-[10px] tracking-wider">Payment Mode</strong>
+                        <span className="text-zinc-200 font-semibold mt-0.5 block">
+                          {activeOrder.payment_method === 'cod' ? '💵 Cash on Delivery (COD)' : '📱 Paid online via UPI'}
+                        </span>
+                      </div>
+                      <div className="text-right">
+                        <strong className="block text-zinc-500 font-extrabold uppercase text-[10px] tracking-wider">Collect Amount</strong>
+                        <span className={`text-xs font-black block mt-0.5 ${activeOrder.payment_method === 'cod' ? 'text-yellow-500 font-extrabold animate-pulse' : 'text-green-500'}`}>
+                          {activeOrder.payment_method === 'cod' ? formatINR(activeOrder.total_amount) : '₹0.00 (PAID)'}
+                        </span>
+                      </div>
+                    </div>
                   </div>
 
                   {/* Order Contacts Desk */}
@@ -1216,9 +1316,70 @@ export default function DeliveryDashboard() {
                         <Check size={16} /> Complete Delivery
                       </button>
                     ) : activeOrder.status === 'delivered' ? (
-                      <div className="p-3 rounded-xl flex items-center justify-center gap-2 text-xs font-bold border border-green-500/20 bg-green-500/5 text-[#22C55E]">
-                        <CheckCircle2 size={16} /> Delivery successfully completed!
-                      </div>
+                      activeOrder.payment_method === 'cod' && !activeOrder.driver_cash_submitted ? (
+                        <div className="space-y-4 p-4 rounded-xl border border-yellow-500/20 bg-yellow-500/5">
+                          <div className="text-center">
+                            <span className="text-xs font-bold text-yellow-500 block uppercase tracking-wider">💰 COD Cash Collection</span>
+                            <p className="text-[10px] text-zinc-400 mt-1">
+                              You collected <strong>{formatINR(activeOrder.total_amount)}</strong> in cash. 
+                              Please transfer this amount online to the central UPI ID below and upload details.
+                            </p>
+                          </div>
+                          
+                          <div className="p-3 rounded-lg bg-zinc-900 text-[11px] space-y-1.5 border border-zinc-800">
+                            <div className="flex justify-between">
+                              <span className="text-zinc-500">Central UPI ID:</span>
+                              <span className="text-yellow-500 font-mono font-bold">kdlgoods@icici</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-zinc-500">Account Name:</span>
+                              <span className="text-zinc-200 font-semibold">KDL Goods Private Ltd.</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-zinc-500">Account No:</span>
+                              <span className="text-zinc-200 font-mono font-semibold">123405006789</span>
+                            </div>
+                          </div>
+
+                          <div className="space-y-2">
+                            <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-wide">UPI Submission Txn ID (Required)</label>
+                            <input 
+                              type="text"
+                              placeholder="12 digit UPI transaction ID"
+                              className="input py-2.5 text-xs text-center"
+                              value={cashTxnId}
+                              onChange={e => setCashTxnId(e.target.value)}
+                            />
+
+                            <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-wide">Upload Receipt Screenshot (Optional)</label>
+                            <label className="flex items-center justify-center gap-2 cursor-pointer w-full rounded-lg p-2 bg-zinc-900 border border-dashed border-zinc-800 text-zinc-500 hover:text-zinc-300 transition">
+                              <span className="text-xs">{cashScreenshot ? `✓ ${cashScreenshot}` : "Attach screenshot"}</span>
+                              <input 
+                                type="file" 
+                                accept="image/*" 
+                                className="hidden" 
+                                onChange={e => {
+                                  if (e.target.files?.[0]) {
+                                    setCashScreenshot(e.target.files[0].name);
+                                  }
+                                }} 
+                              />
+                            </label>
+                          </div>
+
+                          <button
+                            onClick={handleCashSubmit}
+                            disabled={cashSubmitting}
+                            className="w-full font-bold py-2.5 rounded-xl transition flex items-center justify-center gap-2 bg-yellow-500 text-black hover:bg-yellow-400 text-xs uppercase tracking-wider font-extrabold"
+                          >
+                            {cashSubmitting ? 'Verifying...' : 'Confirm Cash Submission'}
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="p-3 rounded-xl flex items-center justify-center gap-2 text-xs font-bold border border-green-500/20 bg-green-500/5 text-[#22C55E]">
+                          <CheckCircle2 size={16} /> Delivery successfully completed & cash submitted!
+                        </div>
+                      )
                     ) : (
                       <div className="p-3 rounded-xl flex items-center justify-center gap-2 text-xs font-bold border border-yellow-500/20 bg-yellow-500/5 text-yellow-500">
                         <Loader2 className="animate-spin" size={14} /> 

@@ -83,6 +83,13 @@ export interface Order {
   delivery_location: LatLng;
   created_at: string;
   updated_at: string;
+  payment_method: 'cod' | 'upi';
+  payment_status: 'pending' | 'paid';
+  upi_transaction_id?: string | null;
+  upi_screenshot_url?: string | null;
+  driver_cash_submitted: boolean;
+  driver_cash_txn_id?: string | null;
+  driver_cash_screenshot_url?: string | null;
   items?: OrderItem[];
   customer?: UserProfile;
   seller?: SellerProfile;
