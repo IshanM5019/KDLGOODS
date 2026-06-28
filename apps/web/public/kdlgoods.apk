@@ -1,0 +1,5 @@
+This is a placeholder file for the KDLGOODS Android App APK.
+Please replace this file (located at apps/web/public/kdlgoods.apk) with your actual built APK file generated from Expo EAS Build:
+`eas build --platform android --profile preview`
+
+Once the real .apk file is copied here, clicking 'Download for Android' on the website will serve the real app installer directly!

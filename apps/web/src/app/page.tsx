@@ -161,9 +161,8 @@ export default function HomePage() {
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1rem', alignItems: 'center' }}>
                 {/* Primary APK download */}
                 <a
-                  href="https://expo.dev/accounts/ishanm5019/projects/kdlgoods"
-                  target="_blank"
-                  rel="noopener noreferrer"
+                  href="/kdlgoods.apk"
+                  download="kdlgoods.apk"
                   style={{
                     display: 'flex', alignItems: 'center', gap: '0.75rem',
                     background: '#F7D108', color: '#121212',
