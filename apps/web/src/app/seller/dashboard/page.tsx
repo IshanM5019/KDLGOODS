@@ -33,6 +33,40 @@ async function uploadProductImage(file: File, sellerId: string): Promise<string>
   return data.publicUrl;
 }
 
+// Programmatic chime using Web Audio API for mobile/desktop notifications
+function playNotificationSound() {
+  try {
+    const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+    if (!AudioContextClass) return;
+    const audioCtx = new AudioContextClass();
+    
+    const notes = [
+      { freq: 523.25, timeOffset: 0, duration: 0.15 }, // C5
+      { freq: 659.25, timeOffset: 0.1, duration: 0.15 }, // E5
+      { freq: 783.99, timeOffset: 0.2, duration: 0.3 }  // G5
+    ];
+
+    notes.forEach(note => {
+      const osc = audioCtx.createOscillator();
+      const gainNode = audioCtx.createGain();
+      
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(note.freq, audioCtx.currentTime + note.timeOffset);
+      
+      gainNode.gain.setValueAtTime(0.15, audioCtx.currentTime + note.timeOffset);
+      gainNode.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + note.timeOffset + note.duration);
+      
+      osc.connect(gainNode);
+      gainNode.connect(audioCtx.destination);
+      
+      osc.start(audioCtx.currentTime + note.timeOffset);
+      osc.stop(audioCtx.currentTime + note.timeOffset + note.duration);
+    });
+  } catch (err) {
+    console.error('Failed to play notification sound:', err);
+  }
+}
+
 export default function SellerDashboard() {
   const router = useRouter();
   const [products, setProducts] = useState<Product[]>([]);
@@ -123,8 +157,21 @@ export default function SellerDashboard() {
 
     const ordersChannel = supabase
       .channel('seller-orders-changes')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, () => fetchOrders(sellerId))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, (payload) => {
+        if (payload.eventType === 'INSERT') {
+          playNotificationSound();
+        }
+        fetchOrders(sellerId);
+      })
       .subscribe();
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        fetchOrders(sellerId);
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('focus', handleVisibilityChange);
 
     const checkLocalInterval = setInterval(() => {
       if (!dbConnected) {
@@ -138,6 +185,8 @@ export default function SellerDashboard() {
 
     return () => {
       supabase.removeChannel(ordersChannel);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('focus', handleVisibilityChange);
       clearInterval(checkLocalInterval);
     };
   }, [sellerId, dbConnected]);
