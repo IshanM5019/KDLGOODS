@@ -270,7 +270,7 @@ export default function CustomerDashboard() {
       try {
         const { data, error } = await supabase
           .from('orders')
-          .select('*, sellers(store_name, address, location), driver:profiles!orders_delivery_partner_id_fkey(full_name, phone_number)')
+          .select('*, sellers(store_name, address, location, profile:profiles(phone_number, full_name)), driver:profiles!orders_delivery_partner_id_fkey(full_name, phone_number)')
           .eq('id', activeOrderTrackingId)
           .single();
         if (!error && data) {
@@ -1248,10 +1248,15 @@ export default function CustomerDashboard() {
                         <p className="text-zinc-200 font-semibold mt-0.5">{activeOrder.delivery_address}</p>
                       </div>
                       {activeOrder.sellers && (
-                        <div className="border-t border-zinc-800 pt-3">
+                        <div className="border-t border-zinc-800 pt-3 flex flex-col gap-0.5">
                           <strong className="block text-zinc-500 font-extrabold uppercase">Store Details</strong>
-                          <p className="text-zinc-200 font-semibold mt-1">🏪 {activeOrder.sellers.store_name}</p>
-                          {activeOrder.sellers.address && <p className="text-zinc-400 mt-0.5">{activeOrder.sellers.address}</p>}
+                          <p className="text-zinc-200 font-semibold mt-0.5">🏪 {activeOrder.sellers.store_name}</p>
+                          {activeOrder.sellers.address && <p className="text-zinc-400">{activeOrder.sellers.address}</p>}
+                          {activeOrder.sellers.profile?.phone_number && (
+                            <a href={`tel:${activeOrder.sellers.profile.phone_number}`} className="inline-flex items-center gap-1.5 text-yellow-500 hover:text-yellow-400 font-semibold transition mt-1">
+                              📞 Call Store: {activeOrder.sellers.profile.phone_number}
+                            </a>
+                          )}
                         </div>
                       )}
                       <div className="border-t border-zinc-800 pt-3">

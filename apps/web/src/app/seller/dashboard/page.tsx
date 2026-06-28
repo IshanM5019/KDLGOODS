@@ -808,11 +808,17 @@ export default function SellerDashboard() {
     <div className="min-h-screen text-white p-4 md:p-6" style={{ backgroundColor: '#121212' }}>
       {/* Compulsory Mobile Number Warning Banner */}
       {!userPhone && (
-        <div className="mb-6 p-4 rounded-xl flex items-center justify-between text-xs font-semibold animate-pulse" style={{ background: 'rgba(239,68,68,0.15)', border: '1px solid rgba(239,68,68,0.3)', color: '#f87171' }}>
+        <div className="mb-6 p-4 rounded-xl flex items-center justify-between text-xs font-semibold" style={{ background: 'rgba(239,68,68,0.15)', border: '1px solid rgba(239,68,68,0.3)', color: '#f87171' }}>
           <div className="flex items-center gap-2">
-            <AlertCircle size={16} />
-            <span>Compulsory Mobile Contact Required! Please update your profile settings with a contact number.</span>
+            <AlertCircle size={16} className="animate-pulse" />
+            <span>Compulsory Mobile Contact Required! Please update your settings with a phone number so customers and riders can contact you.</span>
           </div>
+          <button
+            onClick={() => setActiveTab('profile')}
+            className="px-3.5 py-1.5 rounded-lg bg-red-600 text-white font-extrabold hover:bg-red-750 transition text-[11px] uppercase tracking-wider"
+          >
+            Fix Profile
+          </button>
         </div>
       )}
 
