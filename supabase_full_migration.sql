@@ -29,7 +29,13 @@ ALTER TABLE public.orders ADD CONSTRAINT check_payment_method CHECK (payment_met
 ALTER TABLE public.orders DROP CONSTRAINT IF EXISTS check_payment_status;
 ALTER TABLE public.orders ADD CONSTRAINT check_payment_status CHECK (payment_status IN ('pending', 'paid'));
 
--- 4. Add delivery_partner_fee Column to Orders Table
+-- 4. Add Ledger Columns to public.orders Table
+ALTER TABLE public.orders 
+ADD COLUMN IF NOT EXISTS items_total NUMERIC(10,2) NOT NULL DEFAULT 0.00 CHECK (items_total >= 0.00),
+ADD COLUMN IF NOT EXISTS handling_charge NUMERIC(10,2) NOT NULL DEFAULT 0.00 CHECK (handling_charge >= 0.00),
+ADD COLUMN IF NOT EXISTS small_cart_fee NUMERIC(10,2) NOT NULL DEFAULT 0.00 CHECK (small_cart_fee >= 0.00);
+
+-- 5. Add delivery_partner_fee Column to Orders Table
 ALTER TABLE public.orders 
 ADD COLUMN IF NOT EXISTS delivery_partner_fee NUMERIC(10,2) NOT NULL DEFAULT 25.00 CHECK (delivery_partner_fee >= 20.00 AND delivery_partner_fee <= 30.00);
 
@@ -315,6 +321,40 @@ CREATE TRIGGER on_driver_online_assign
     FOR EACH ROW
     EXECUTE FUNCTION public.trigger_assign_pending_orders();
 
--- 14. Enable Supabase Realtime Publication for ALL Tables
+-- 14. Create trigger function to handle payout distribution upon order delivery
+CREATE OR REPLACE FUNCTION public.handle_order_delivery_payout()
+RETURNS TRIGGER AS $$
+DECLARE
+    order_items_total NUMERIC(10,2);
+    order_delivery_fee NUMERIC(10,2);
+BEGIN
+    -- Check if order status transitioned to 'delivered'
+    IF NEW.status = 'delivered' AND OLD.status != 'delivered' THEN
+        order_items_total := NEW.items_total;
+        order_delivery_fee := NEW.delivery_partner_fee;
+
+        -- Deposit delivery partner fee to delivery partner's balance
+        IF NEW.delivery_partner_id IS NOT NULL THEN
+            UPDATE public.delivery_partners
+            SET balance = balance + order_delivery_fee
+            WHERE id = NEW.delivery_partner_id;
+        END IF;
+
+        -- Deposit items total to seller's balance
+        UPDATE public.sellers
+        SET balance = balance + order_items_total
+        WHERE id = NEW.seller_id;
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+DROP TRIGGER IF EXISTS on_order_delivered ON public.orders;
+CREATE TRIGGER on_order_delivered
+AFTER UPDATE OF status ON public.orders
+FOR EACH ROW
+EXECUTE FUNCTION public.handle_order_delivery_payout();
+
+-- 15. Enable Supabase Realtime Publication for ALL Tables
 DROP PUBLICATION IF EXISTS supabase_realtime;
 CREATE PUBLICATION supabase_realtime FOR ALL TABLES;
