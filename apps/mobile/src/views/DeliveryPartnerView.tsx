@@ -28,13 +28,13 @@ export default function DeliveryPartnerView({ driverId }: DeliveryPartnerViewPro
         .from('orders')
         .select('*')
         .eq('delivery_partner_id', driverId)
-        .in('status', ['awaiting_pickup', 'driver_accepted', 'picked_up', 'out_for_delivery'])
+        .in('status', ['accepted', 'preparing', 'awaiting_pickup', 'driver_accepted', 'picked_up', 'out_for_delivery'])
         .order('updated_at', { ascending: false })
         .limit(1)
         .maybeSingle();
       if (!error && data) {
         setActiveOrder(data as Order);
-        if (data.status === 'awaiting_pickup') {
+        if (['accepted', 'preparing', 'awaiting_pickup'].includes(data.status)) {
           setShowDispatchAlert(true);
         }
       }
@@ -64,10 +64,28 @@ export default function DeliveryPartnerView({ driverId }: DeliveryPartnerViewPro
         { event: 'UPDATE', schema: 'public', table: 'orders' },
         (payload: any) => {
           const updatedOrder = payload.new as Order;
-          if (updatedOrder.delivery_partner_id === driverId && updatedOrder.status === 'awaiting_pickup') {
-            // New dispatch received!
-            setActiveOrder(updatedOrder);
-            setShowDispatchAlert(true);
+          if (updatedOrder.delivery_partner_id === driverId) {
+            // 1. Check if the order was cancelled
+            if (updatedOrder.status === 'cancelled') {
+              if (activeOrder && activeOrder.id === updatedOrder.id) {
+                setActiveOrder(null);
+                Alert.alert('Cancelled', '⚠️ The active order has been cancelled by the customer.');
+              }
+              return;
+            }
+
+            // 2. Check if we already have this order active and its status changed
+            if (activeOrder && activeOrder.id === updatedOrder.id) {
+              setActiveOrder(updatedOrder);
+              return;
+            }
+
+            // 3. If we don't have an active order, show the dispatch alert for incoming orders
+            const isAwaitingAction = ['accepted', 'preparing', 'awaiting_pickup'].includes(updatedOrder.status);
+            if (!activeOrder && isAwaitingAction) {
+              setActiveOrder(updatedOrder);
+              setShowDispatchAlert(true);
+            }
           }
         }
       )
@@ -76,7 +94,7 @@ export default function DeliveryPartnerView({ driverId }: DeliveryPartnerViewPro
     return () => {
       supabase.removeChannel(orderSubscription);
     };
-  }, [isOnline, driverId]);
+  }, [isOnline, driverId, activeOrder]);
 
   const updateDriverLocation = async () => {
     // Update delivery_partners coordinates in public table
