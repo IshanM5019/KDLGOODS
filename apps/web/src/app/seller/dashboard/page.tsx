@@ -599,7 +599,7 @@ export default function SellerDashboard() {
     try {
       const { data, error } = await supabase
         .from('orders')
-        .select('*, profiles(full_name)')
+        .select('*, customer:profiles!orders_customer_id_fkey(full_name)')
         .eq('seller_id', currentSellerId)
         .order('created_at', { ascending: false });
       if (error) throw error;
