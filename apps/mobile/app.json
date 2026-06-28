@@ -2,6 +2,7 @@
   "expo": {
     "name": "KDLGOODS",
     "slug": "kdlgoods",
+    "owner": "ishanm19s-team",
     "version": "1.0.0",
     "orientation": "portrait",
     "userInterfaceStyle": "dark",
