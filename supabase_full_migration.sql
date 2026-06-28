@@ -317,7 +317,7 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 
 DROP TRIGGER IF EXISTS on_driver_online_assign ON public.delivery_partners;
 CREATE TRIGGER on_driver_online_assign
-    AFTER UPDATE OF is_online ON public.delivery_partners
+    AFTER INSERT OR UPDATE ON public.delivery_partners
     FOR EACH ROW
     EXECUTE FUNCTION public.trigger_assign_pending_orders();
 
