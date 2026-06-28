@@ -43,11 +43,6 @@
           "locationAlwaysAndWhenInUsePermission": "KDLGOODS needs your location to find nearby stores and track deliveries."
         }
       ]
-    ],
-    "extra": {
-      "eas": {
-        "projectId": "1968bc6b-ccaf-4225-b3d7-4e1ce8c0ace3"
-      }
-    }
+    ]
   }
 }
