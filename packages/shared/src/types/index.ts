@@ -11,6 +11,7 @@ export interface UserProfile {
   full_name: string;
   phone_number: string | null;
   avatar_url: string | null;
+  address?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -94,6 +95,7 @@ export interface Order {
   customer?: UserProfile;
   seller?: SellerProfile;
   delivery_partner?: UserProfile;
+  driver?: UserProfile;
 }
 
 export interface OrderItem {

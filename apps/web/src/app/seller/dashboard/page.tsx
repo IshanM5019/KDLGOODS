@@ -94,6 +94,7 @@ export default function SellerDashboard() {
   });
   const [userPhone, setUserPhone] = useState<string | null>(null);
   const [profileName, setProfileName] = useState('');
+  const [profileAddress, setProfileAddress] = useState('');
   const [profileAvatarUrl, setProfileAvatarUrl] = useState('');
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [newPassword, setNewPassword] = useState('');
@@ -328,6 +329,7 @@ export default function SellerDashboard() {
           full_name: profileName,
           phone_number: userPhone,
           avatar_url: profileAvatarUrl,
+          address: profileAddress,
         })
         .eq('id', user.id);
 
@@ -443,13 +445,14 @@ export default function SellerDashboard() {
       // Verify user role
       const { data: profile, error: profileErr } = await supabase
         .from('profiles')
-        .select('role, phone_number, full_name, avatar_url')
+        .select('role, phone_number, full_name, avatar_url, address')
         .eq('id', user.id)
         .single();
       const userRole = profile?.role || user.user_metadata?.role || 'customer';
       setUserPhone(profile?.phone_number || null);
       setProfileName(profile?.full_name || '');
       setProfileAvatarUrl(profile?.avatar_url || '');
+      setProfileAddress(profile?.address || '');
       if (userRole !== 'seller') {
         if (userRole === 'delivery') {
           router.push('/delivery/dashboard');
@@ -599,7 +602,7 @@ export default function SellerDashboard() {
     try {
       const { data, error } = await supabase
         .from('orders')
-        .select('*, customer:profiles!orders_customer_id_fkey(full_name)')
+        .select('*, customer:profiles!orders_customer_id_fkey(full_name, phone_number, address), driver:profiles!orders_delivery_partner_id_fkey(full_name, phone_number)')
         .eq('seller_id', currentSellerId)
         .order('created_at', { ascending: false });
       if (error) throw error;
@@ -942,6 +945,17 @@ export default function SellerDashboard() {
                         placeholder="9876543210"
                       />
                     </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-zinc-400 mb-1.5">Home Address</label>
+                    <input
+                      type="text"
+                      className="input"
+                      value={profileAddress}
+                      onChange={e => setProfileAddress(e.target.value)}
+                      placeholder="House No, Street, Kirandul, Dantewada"
+                    />
                   </div>
 
                   {profileError && (
@@ -1310,8 +1324,38 @@ export default function SellerDashboard() {
                           </div>
                         </div>
 
-                        <div className="text-xs border-y py-2.5 space-y-1.5" style={{ borderColor: '#2E2E2E' }}>
-                          <p className="text-sm" style={{ color: '#B0B0B0' }}>📍 {order.delivery_address}</p>
+                        <div className="text-xs border-y py-2.5 space-y-2.5" style={{ borderColor: '#2E2E2E' }}>
+                          {/* Customer info card */}
+                          <div className="p-3 rounded-lg bg-zinc-900 border border-zinc-800 space-y-1.5">
+                            <span className="text-[10px] font-black uppercase text-blue-400 block tracking-wider">Customer Details</span>
+                            <div className="text-zinc-200">
+                              <p className="font-semibold">👤 {order.customer?.full_name || 'Customer'}</p>
+                              {order.customer?.phone_number && (
+                                <a href={`tel:${order.customer.phone_number}`} className="text-yellow-500 hover:text-yellow-400 transition font-medium inline-flex items-center gap-1 mt-0.5">
+                                  📞 {order.customer.phone_number}
+                                </a>
+                              )}
+                              {order.customer?.address && (
+                                <p className="text-zinc-400 mt-1">📍 Home Address: {order.customer.address}</p>
+                              )}
+                              <p className="text-zinc-400 mt-1">📍 Delivery Address: {order.delivery_address}</p>
+                            </div>
+                          </div>
+
+                          {/* Driver info card */}
+                          {order.delivery_partner_id && (
+                            <div className="p-3 rounded-lg bg-zinc-900 border border-zinc-800 space-y-1.5">
+                              <span className="text-[10px] font-black uppercase text-green-400 block tracking-wider">Rider Details</span>
+                              <div className="text-zinc-200">
+                                <p className="font-semibold">🛵 {order.driver?.full_name || 'Assigned Rider'}</p>
+                                {order.driver?.phone_number && (
+                                  <a href={`tel:${order.driver.phone_number}`} className="text-yellow-500 hover:text-yellow-400 transition font-medium inline-flex items-center gap-1 mt-0.5">
+                                    📞 {order.driver.phone_number}
+                                  </a>
+                                )}
+                              </div>
+                            </div>
+                          )}
                           <div className="space-y-1 pl-1 border-l-2 border-zinc-800 text-zinc-400">
                             <div className="flex justify-between">
                               <span>Product Price (Listed):</span>

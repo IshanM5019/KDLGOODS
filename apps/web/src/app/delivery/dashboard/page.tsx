@@ -103,6 +103,7 @@ export default function DeliveryDashboard() {
   const [driverId, setDriverId] = useState('driver-uuid-placeholder-123');
   const [userPhone, setUserPhone] = useState<string | null>(null);
   const [profileName, setProfileName] = useState('');
+  const [profileAddress, setProfileAddress] = useState('');
   const [profileAvatarUrl, setProfileAvatarUrl] = useState('');
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [newPassword, setNewPassword] = useState('');
@@ -216,6 +217,7 @@ export default function DeliveryDashboard() {
   const [customerPhone, setCustomerPhone] = useState<string | null>(null);
   const [sellerPhone, setSellerPhone] = useState<string | null>(null);
   const [customerName, setCustomerName] = useState<string>('Customer');
+  const [customerAddress, setCustomerAddress] = useState<string>('');
   const [sellerName, setSellerName] = useState<string>('Store Manager');
 
   useEffect(() => {
@@ -229,15 +231,17 @@ export default function DeliveryDashboard() {
       try {
         const { data: customerData } = await supabase
           .from('profiles')
-          .select('phone_number, full_name')
+          .select('phone_number, full_name, address')
           .eq('id', activeOrder.customer_id)
           .single();
         if (customerData) {
           setCustomerPhone(customerData.phone_number || '+91 99999 12345');
           setCustomerName(customerData.full_name || 'Customer');
+          setCustomerAddress(customerData.address || '');
         } else {
           setCustomerPhone('+91 99999 12345');
           setCustomerName('Customer');
+          setCustomerAddress('');
         }
 
         const { data: sellerData } = await supabase
@@ -311,13 +315,14 @@ export default function DeliveryDashboard() {
         // Verify role
         const { data: profile, error: profileErr } = await supabase
           .from('profiles')
-          .select('role, phone_number, full_name, avatar_url')
+          .select('role, phone_number, full_name, avatar_url, address')
           .eq('id', user.id)
           .single();
         const userRole = profile?.role || user.user_metadata?.role || 'customer';
         setUserPhone(profile?.phone_number || null);
         setProfileName(profile?.full_name || '');
         setProfileAvatarUrl(profile?.avatar_url || '');
+        setProfileAddress(profile?.address || '');
         if (userRole !== 'delivery') {
           if (userRole === 'seller') {
             router.push('/seller/dashboard');
@@ -780,6 +785,7 @@ export default function DeliveryDashboard() {
           full_name: profileName,
           phone_number: userPhone,
           avatar_url: profileAvatarUrl,
+          address: profileAddress,
         })
         .eq('id', user.id);
 
@@ -1392,23 +1398,22 @@ export default function DeliveryDashboard() {
                     </div>
                   </div>
 
-                  {/* Order Contacts Desk */}
-                  <div className="border-t border-zinc-800 pt-3.5 mt-2">
-                    <strong className="block text-zinc-500 font-extrabold uppercase text-[10px] tracking-wider mb-2.5">Order Contacts Desk</strong>
-                    <div className="grid grid-cols-2 gap-3">
-                      <a 
-                        href={`tel:${sellerPhone || '9876543210'}`}
-                        className="flex items-center justify-center gap-1.5 py-2.5 px-3.5 rounded-xl border border-zinc-800 bg-[#222] hover:bg-zinc-800 text-zinc-200 transition text-[11px] font-bold"
-                      >
-                        <PhoneCall size={12} className="text-yellow-500" />
-                        <span>Contact Seller</span>
+                  {/* Customer & Seller Details */}
+                  <div className="border-t border-zinc-800 pt-3.5 mt-2 space-y-3">
+                    <strong className="block text-zinc-500 font-extrabold uppercase text-[10px] tracking-wider">Customer Details</strong>
+                    <div className="p-3 rounded-xl bg-[#222] border border-zinc-800 space-y-1.5 text-xs">
+                      <p className="text-zinc-200 font-semibold">👤 {customerName}</p>
+                      <a href={`tel:${customerPhone || '9999912345'}`} className="text-yellow-500 hover:text-yellow-400 font-semibold transition inline-flex items-center gap-1">
+                        📞 {customerPhone || 'Not available'}
                       </a>
-                      <a 
-                        href={`tel:${customerPhone || '9999912345'}`}
-                        className="flex items-center justify-center gap-1.5 py-2.5 px-3.5 rounded-xl border border-zinc-800 bg-[#222] hover:bg-zinc-800 text-zinc-200 transition text-[11px] font-bold"
-                      >
-                        <User size={12} className="text-blue-400" />
-                        <span>Contact User</span>
+                      {customerAddress && <p className="text-zinc-400">📍 {customerAddress}</p>}
+                    </div>
+
+                    <strong className="block text-zinc-500 font-extrabold uppercase text-[10px] tracking-wider">Seller Details</strong>
+                    <div className="p-3 rounded-xl bg-[#222] border border-zinc-800 space-y-1.5 text-xs">
+                      <p className="text-zinc-200 font-semibold">🏪 {sellerName}</p>
+                      <a href={`tel:${sellerPhone || '9876543210'}`} className="text-yellow-500 hover:text-yellow-400 font-semibold transition inline-flex items-center gap-1">
+                        📞 {sellerPhone || 'Not available'}
                       </a>
                     </div>
                   </div>
@@ -1767,6 +1772,17 @@ export default function DeliveryDashboard() {
                     value={userPhone || ''}
                     onChange={e => setUserPhone(e.target.value)}
                     placeholder="9876543210"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-zinc-400 mb-1.5">Home Address</label>
+                  <input
+                    type="text"
+                    className="input"
+                    value={profileAddress}
+                    onChange={e => setProfileAddress(e.target.value)}
+                    placeholder="House No, Street, Kirandul, Dantewada"
                   />
                 </div>
 

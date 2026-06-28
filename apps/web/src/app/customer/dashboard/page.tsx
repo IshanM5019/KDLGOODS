@@ -82,6 +82,7 @@ export default function CustomerDashboard() {
   const [userPhone, setUserPhone] = useState<string | null>(null);
   const [showSettingsDrawer, setShowSettingsDrawer] = useState(false);
   const [profileName, setProfileName] = useState('');
+  const [profileAddress, setProfileAddress] = useState('');
   const [profileAvatarUrl, setProfileAvatarUrl] = useState('');
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [newPassword, setNewPassword] = useState('');
@@ -172,13 +173,14 @@ export default function CustomerDashboard() {
 
         const { data: profile, error: profileErr } = await supabase
           .from('profiles')
-          .select('role, phone_number, full_name, avatar_url')
+          .select('role, phone_number, full_name, avatar_url, address')
           .eq('id', user.id)
           .single();
         const userRole = profile?.role || user.user_metadata?.role || 'customer';
         setUserPhone(profile?.phone_number || null);
         setProfileName(profile?.full_name || '');
         setProfileAvatarUrl(profile?.avatar_url || '');
+        setProfileAddress(profile?.address || '');
         if (userRole !== 'customer') {
           if (userRole === 'seller') {
             router.push('/seller/dashboard');
@@ -238,7 +240,7 @@ export default function CustomerDashboard() {
       try {
         const { data, error } = await supabase
           .from('orders')
-          .select('*, sellers(store_name, location)')
+          .select('*, sellers(store_name, address, location), driver:profiles!orders_delivery_partner_id_fkey(full_name, phone_number)')
           .eq('id', activeOrderTrackingId)
           .single();
         if (!error && data) {
@@ -685,6 +687,7 @@ export default function CustomerDashboard() {
           full_name: profileName,
           phone_number: userPhone,
           avatar_url: profileAvatarUrl,
+          address: profileAddress,
         })
         .eq('id', user.id);
 
@@ -1168,12 +1171,26 @@ export default function CustomerDashboard() {
                         <strong className="block text-zinc-500 font-extrabold uppercase">Delivery Destination</strong>
                         <p className="text-zinc-200 font-semibold mt-0.5">{activeOrder.delivery_address}</p>
                       </div>
+                      {activeOrder.sellers && (
+                        <div className="border-t border-zinc-800 pt-3">
+                          <strong className="block text-zinc-500 font-extrabold uppercase">Store Details</strong>
+                          <p className="text-zinc-200 font-semibold mt-1">🏪 {activeOrder.sellers.store_name}</p>
+                          {activeOrder.sellers.address && <p className="text-zinc-400 mt-0.5">{activeOrder.sellers.address}</p>}
+                        </div>
+                      )}
                       <div className="border-t border-zinc-800 pt-3">
-                        <strong className="block text-zinc-500 font-extrabold uppercase">Rider Assignment</strong>
+                        <strong className="block text-zinc-500 font-extrabold uppercase">Delivery Partner</strong>
                         {activeOrder.delivery_partner_id ? (
-                          <div className="flex items-center gap-2 mt-1">
-                            <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
-                            <p className="text-zinc-200 font-medium">Assigned Rider (ID: <span className="font-mono text-zinc-400">{activeOrder.delivery_partner_id.slice(0, 8)}</span>)</p>
+                          <div className="mt-1 space-y-1">
+                            <div className="flex items-center gap-2">
+                              <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
+                              <p className="text-zinc-200 font-semibold">{activeOrder.driver?.full_name || 'Rider Assigned'}</p>
+                            </div>
+                            {activeOrder.driver?.phone_number && (
+                              <a href={`tel:${activeOrder.driver.phone_number}`} className="inline-flex items-center gap-1.5 text-yellow-500 hover:text-yellow-400 font-semibold transition">
+                                📞 {activeOrder.driver.phone_number}
+                              </a>
+                            )}
                           </div>
                         ) : (
                           <p className="text-yellow-500 font-semibold mt-1 flex items-center gap-1">
@@ -1827,6 +1844,17 @@ export default function CustomerDashboard() {
                     onChange={e => setUserPhone(e.target.value)}
                     className="input py-2 px-3 text-xs w-full"
                     placeholder="9876543210"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-wide mb-1">Delivery Address</label>
+                  <input
+                    type="text"
+                    value={profileAddress}
+                    onChange={e => setProfileAddress(e.target.value)}
+                    className="input py-2 px-3 text-xs w-full"
+                    placeholder="House No, Street, Kirandul, Dantewada"
                   />
                 </div>
 
