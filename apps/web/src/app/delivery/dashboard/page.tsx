@@ -114,6 +114,7 @@ export default function DeliveryDashboard() {
   const [notifEmail, setNotifEmail] = useState(true);
   const [notifPush, setNotifPush] = useState(true);
   const [loadingUser, setLoadingUser] = useState(true);
+  const [dbConnected, setDbConnected] = useState(true);
   const [activeOrder, setActiveOrder] = useState<Order | null>(() => {
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem('kdlgoods_driver_active_order');
@@ -284,8 +285,10 @@ export default function DeliveryDashboard() {
           setShowAlert(true);
         }
       }
+      setDbConnected(true);
     } catch (err) {
       console.warn('Failed to fetch active driver order:', err);
+      setDbConnected(false);
     }
   };
 
@@ -353,6 +356,7 @@ export default function DeliveryDashboard() {
         window.dispatchEvent(new Event('storage'));
       } catch (err) {
         console.error('Failed to get delivery partner user/balance:', err);
+        setDbConnected(false);
       } finally {
         setLoadingUser(false);
       }
@@ -464,41 +468,43 @@ export default function DeliveryDashboard() {
 
     // Local Storage Offline Poll Fallback
     const checkLocalInterval = setInterval(() => {
-      const local = JSON.parse(localStorage.getItem('kdlgoods_orders') || '[]');
-      
-      const ongoingOrder = local.find((o: any) => 
-        o.delivery_partner_id === driverId && 
-        ['driver_accepted', 'picked_up', 'out_for_delivery'].includes(o.status)
-      );
-      if (ongoingOrder && (!activeOrder || activeOrder.status !== ongoingOrder.status)) {
-        setActiveOrder(ongoingOrder);
-        setShowAlert(false);
-        return;
-      }
-
-      const pendingIndex = local.findIndex((o: any) => 
-        ['accepted', 'preparing', 'awaiting_pickup'].includes(o.status) && 
-        (!o.delivery_partner_id || o.delivery_partner_id === driverId)
-      );
-
-      if (pendingIndex !== -1) {
-        if (!local[pendingIndex].delivery_partner_id) {
-          local[pendingIndex].delivery_partner_id = driverId;
-          localStorage.setItem('kdlgoods_orders', JSON.stringify(local));
+      if (!dbConnected) {
+        const local = JSON.parse(localStorage.getItem('kdlgoods_orders') || '[]');
+        
+        const ongoingOrder = local.find((o: any) => 
+          o.delivery_partner_id === driverId && 
+          ['driver_accepted', 'picked_up', 'out_for_delivery'].includes(o.status)
+        );
+        if (ongoingOrder && (!activeOrder || activeOrder.status !== ongoingOrder.status)) {
+          setActiveOrder(ongoingOrder);
+          setShowAlert(false);
+          return;
         }
-        if (!activeOrder || activeOrder.id !== local[pendingIndex].id) {
-          const matchedOrder = local[pendingIndex];
-          setActiveOrder(matchedOrder);
-          setShowAlert(true);
-          setSimStep(0);
-          setCoords(ROUTE_STEPS[0]);
-          
-          // Trigger alerts
-          playNotificationSound();
-          triggerBrowserNotification(
-            '⚡ New Dispatch Request!',
-            `Deliver to: ${matchedOrder.delivery_address}. Swipe to accept.`
-          );
+
+        const pendingIndex = local.findIndex((o: any) => 
+          ['accepted', 'preparing', 'awaiting_pickup'].includes(o.status) && 
+          (!o.delivery_partner_id || o.delivery_partner_id === driverId)
+        );
+
+        if (pendingIndex !== -1) {
+          if (!local[pendingIndex].delivery_partner_id) {
+            local[pendingIndex].delivery_partner_id = driverId;
+            localStorage.setItem('kdlgoods_orders', JSON.stringify(local));
+          }
+          if (!activeOrder || activeOrder.id !== local[pendingIndex].id) {
+            const matchedOrder = local[pendingIndex];
+            setActiveOrder(matchedOrder);
+            setShowAlert(true);
+            setSimStep(0);
+            setCoords(ROUTE_STEPS[0]);
+            
+            // Trigger alerts
+            playNotificationSound();
+            triggerBrowserNotification(
+              '⚡ New Dispatch Request!',
+              `Deliver to: ${matchedOrder.delivery_address}. Swipe to accept.`
+            );
+          }
         }
       }
 
@@ -511,7 +517,7 @@ export default function DeliveryDashboard() {
       supabase.removeChannel(orderSubscription);
       clearInterval(checkLocalInterval);
     };
-  }, [isOnline, activeOrder, driverId, loadingUser]);
+  }, [isOnline, activeOrder, driverId, loadingUser, dbConnected]);
 
   const updateDriverLocation = async () => {
     try {

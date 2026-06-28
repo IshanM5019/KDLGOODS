@@ -39,6 +39,7 @@ export default function SellerDashboard() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [activeTab, setActiveTab] = useState<'orders' | 'catalog' | 'profile'>('orders');
   const [loading, setLoading] = useState(true);
+  const [dbConnected, setDbConnected] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [balance, setBalance] = useState(() => {
     if (typeof window !== 'undefined') {
@@ -125,9 +126,11 @@ export default function SellerDashboard() {
       .subscribe();
 
     const checkLocalInterval = setInterval(() => {
-      const local = JSON.parse(localStorage.getItem('kdlgoods_orders') || '[]');
-      const filtered = local.filter((o: any) => o.seller_id === sellerId);
-      setOrders(filtered);
+      if (!dbConnected) {
+        const local = JSON.parse(localStorage.getItem('kdlgoods_orders') || '[]');
+        const filtered = local.filter((o: any) => o.seller_id === sellerId);
+        setOrders(filtered);
+      }
       const localBal = localStorage.getItem('kdlgoods_seller_balance');
       if (localBal) setBalance(parseFloat(localBal));
     }, 1000);
@@ -136,7 +139,7 @@ export default function SellerDashboard() {
       supabase.removeChannel(ordersChannel);
       clearInterval(checkLocalInterval);
     };
-  }, [sellerId]);
+  }, [sellerId, dbConnected]);
 
   // Chat & Track Synchronization effect
   useEffect(() => {
@@ -601,7 +604,9 @@ export default function SellerDashboard() {
         .order('created_at', { ascending: false });
       if (error) throw error;
       setOrders(data || []);
+      setDbConnected(true);
     } catch {
+      setDbConnected(false);
       const local = JSON.parse(localStorage.getItem('kdlgoods_orders') || '[]');
       const filtered = local.filter((o: any) => o.seller_id === currentSellerId);
       setOrders(filtered);

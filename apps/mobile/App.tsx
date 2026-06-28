@@ -18,7 +18,17 @@ import {
   Platform,
 } from 'react-native';
 import * as Location from 'expo-location';
-import { DANTEWADA_CENTER, TOWN_NAME, OPERATIONAL_GEOFENCE_KM, formatINR } from '@kdlgoods/shared';
+// ─── Inlined from @kdlgoods/shared (avoids monorepo resolution in EAS cloud builds) ───
+const DANTEWADA_CENTER = { latitude: 18.8728, longitude: 81.7074 };
+const TOWN_NAME = 'Kirandul, Dantewada, Chhattisgarh';
+const OPERATIONAL_GEOFENCE_KM = 5;
+const CURRENCY_SYMBOL = '₹';
+const formatINR = (amount: number, paise = false): string =>
+  CURRENCY_SYMBOL +
+  amount.toLocaleString('hi-IN', {
+    minimumFractionDigits: paise ? 2 : 0,
+    maximumFractionDigits: paise ? 2 : 0,
+  });
 import DeliveryPartnerView from './src/views/DeliveryPartnerView';
 import { supabase } from './src/lib/supabase';
 
