@@ -496,20 +496,55 @@ export default function DeliveryDashboard() {
         (payload: any) => {
           const updatedOrder = payload.new as Order;
           const isAssignedToMe = updatedOrder.delivery_partner_id === driverId;
-          const isAwaitingAction = ['accepted', 'preparing', 'awaiting_pickup'].includes(updatedOrder.status);
           
-          if (isAssignedToMe && isAwaitingAction) {
-            setActiveOrder(updatedOrder);
-            setShowAlert(true);
-            setSimStep(0);
-            setCoords(ROUTE_STEPS[0]);
+          if (isAssignedToMe) {
+            // 1. Check if the order was cancelled
+            if (updatedOrder.status === 'cancelled') {
+              if (activeOrder && activeOrder.id === updatedOrder.id) {
+                setActiveOrder(null);
+                localStorage.removeItem('kdlgoods_driver_active_order');
+                playNotificationSound();
+                alert('⚠️ The active order has been cancelled by the customer.');
+                triggerBrowserNotification(
+                  '❌ Order Cancelled',
+                  'The active order has been cancelled by the customer.'
+                );
+              }
+              return;
+            }
+
+            // 2. Check if we already have this order active and its status changed
+            if (activeOrder && activeOrder.id === updatedOrder.id) {
+              const oldStatus = activeOrder.status;
+              setActiveOrder(updatedOrder);
+              localStorage.setItem('kdlgoods_driver_active_order', JSON.stringify(updatedOrder));
+              
+              // Notify driver if store marks it as ready/prepared
+              if (oldStatus !== 'awaiting_pickup' && updatedOrder.status === 'awaiting_pickup') {
+                playNotificationSound();
+                triggerBrowserNotification(
+                  '📦 Order Ready for Pickup!',
+                  `The merchant has prepared the order. Please collect it.`
+                );
+              }
+              return;
+            }
             
-            // Trigger alerts
-            playNotificationSound();
-            triggerBrowserNotification(
-              '⚡ New Dispatch Request!',
-              `Deliver to: ${updatedOrder.delivery_address}. Swipe to accept.`
-            );
+            // 3. If we don't have an active order, show the dispatch alert for incoming orders
+            const isAwaitingAction = ['accepted', 'preparing', 'awaiting_pickup'].includes(updatedOrder.status);
+            if (!activeOrder && isAwaitingAction) {
+              setActiveOrder(updatedOrder);
+              localStorage.setItem('kdlgoods_driver_active_order', JSON.stringify(updatedOrder));
+              setShowAlert(true);
+              setSimStep(0);
+              setCoords(ROUTE_STEPS[0]);
+              
+              playNotificationSound();
+              triggerBrowserNotification(
+                '⚡ New Dispatch Request!',
+                `Deliver to: ${updatedOrder.delivery_address}. Swipe to accept.`
+              );
+            }
           }
         }
       )
@@ -519,6 +554,17 @@ export default function DeliveryDashboard() {
     const checkLocalInterval = setInterval(() => {
       if (!dbConnected) {
         const local = JSON.parse(localStorage.getItem('kdlgoods_orders') || '[]');
+        
+        // If our active order is cancelled in local storage, clear it
+        if (activeOrder) {
+          const currentLocalOrder = local.find((o: any) => o.id === activeOrder.id);
+          if (currentLocalOrder && currentLocalOrder.status === 'cancelled') {
+            setActiveOrder(null);
+            localStorage.removeItem('kdlgoods_driver_active_order');
+            alert('⚠️ The active order has been cancelled by the customer.');
+            return;
+          }
+        }
         
         const ongoingOrder = local.find((o: any) => 
           o.delivery_partner_id === driverId && 
