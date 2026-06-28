@@ -231,6 +231,7 @@ export default function CustomerDashboard() {
           .maybeSingle();
         if (data) {
           setActiveOrderTrackingId(data.id);
+          localStorage.setItem('kdlgoods_customer_active_tracking_id', data.id);
         }
       } catch (err) {
         console.error('Failed to fetch user:', err);
@@ -290,7 +291,7 @@ export default function CustomerDashboard() {
         table: 'orders',
         filter: `id=eq.${activeOrderTrackingId}`
       }, (payload) => {
-        setActiveOrder(payload.new);
+        fetchOrder();
       })
       .subscribe();
 
@@ -656,6 +657,7 @@ export default function CustomerDashboard() {
 
       if (error) throw error;
       setActiveOrderTrackingId(data.id);
+      localStorage.setItem('kdlgoods_customer_active_tracking_id', data.id);
       setCheckoutSuccess(true);
       setCart([]);
     } catch (err: any) {
@@ -706,6 +708,7 @@ export default function CustomerDashboard() {
       
       setActiveOrderTrackingId(null);
       setActiveOrder(null);
+      localStorage.removeItem('kdlgoods_customer_active_tracking_id');
       alert('Order cancelled successfully.');
       fetchOrderHistory();
     } catch (err: any) {
@@ -1002,6 +1005,14 @@ export default function CustomerDashboard() {
                   </p>
                 </div>
                 <div className="flex gap-2">
+                  {activeOrder.status === 'placed' && (
+                    <button
+                      onClick={() => handleCancelOrder(activeOrder.id)}
+                      className="px-3.5 py-2 rounded-lg font-bold text-xs bg-red-600 hover:bg-red-700 text-white transition flex items-center gap-1.5 shadow-lg shadow-red-900/20"
+                    >
+                      Cancel Order
+                    </button>
+                  )}
                   <button 
                     onClick={() => {
                       setShowChat(!showChat);
@@ -1024,6 +1035,7 @@ export default function CustomerDashboard() {
                         setActiveOrderTrackingId(null);
                         setActiveOrder(null);
                         setCheckoutSuccess(false);
+                        localStorage.removeItem('kdlgoods_customer_active_tracking_id');
                       }} 
                       className="px-3 py-2 rounded-lg bg-zinc-800 text-zinc-300 text-xs font-bold"
                     >
@@ -1294,14 +1306,7 @@ export default function CustomerDashboard() {
                         <span className="text-sm font-extrabold text-white">{formatINR(activeOrder.total_amount)}</span>
                       </div>
                     </div>
-                    {activeOrder.status === 'placed' && (
-                      <button
-                        onClick={() => handleCancelOrder(activeOrder.id)}
-                        className="mt-4 w-full py-2.5 rounded-xl font-bold text-xs bg-red-600/20 border border-red-500/30 text-red-400 hover:bg-red-600/30 transition shadow-lg shadow-red-950/10"
-                      >
-                        Cancel Order
-                      </button>
-                    )}
+
                   </div>
                 </div>
 
