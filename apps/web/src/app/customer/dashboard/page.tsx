@@ -632,47 +632,83 @@ export default function CustomerDashboard() {
     setCheckingOut(true);
 
     try {
-      const payload = {
-        customer_id: customerId,
-        seller_id: cart[0].seller_id,
-        status: 'placed',
-        total_amount: grandTotal,
-        delivery_partner_fee: deliveryPartnerFee,
-        items_total: cartTotal,
-        handling_charge: handlingCharge,
-        small_cart_fee: smallCartFee,
-        delivery_address: 'Kirandul, Dantewada District, Chhattisgarh – 494556',
-        delivery_location: `POINT(${userCoords.longitude} ${userCoords.latitude})`,
-        payment_method: method,
-        payment_status: method === 'upi' ? 'paid' : 'pending',
-        upi_transaction_id: txnId,
-        upi_screenshot_url: screenshotUrl,
-      };
+      // Group cart items by seller_id to split the order if they belong to different stores
+      const itemsBySeller: Record<string, CartItem[]> = {};
+      cart.forEach(item => {
+        if (!itemsBySeller[item.seller_id]) {
+          itemsBySeller[item.seller_id] = [];
+        }
+        itemsBySeller[item.seller_id].push(item);
+      });
 
-      const { data, error } = await supabase
-        .from('orders')
-        .insert([payload])
-        .select('id')
-        .single();
+      const sellerIds = Object.keys(itemsBySeller);
+      if (sellerIds.length === 0) throw new Error('Cart is empty');
 
-      if (error) throw error;
+      let firstOrderId: string | null = null;
 
-      // Insert individual items into order_items
-      const orderItems = cart.map(item => ({
-        order_id: data.id,
-        product_id: item.id,
-        quantity: item.quantity,
-        price_at_order: item.price,
-      }));
+      // Loop through each seller to place a separate order
+      for (const sellerId of sellerIds) {
+        const sellerItems = itemsBySeller[sellerId];
+        const sellerCartTotal = sellerItems.reduce((acc, item) => acc + item.price * item.quantity, 0);
+        
+        // Calculate seller-specific delivery partner fee (₹20 to ₹30 based on distance)
+        const seller = sellers.find(s => s.id === sellerId);
+        const sellerDistanceKm = seller ? seller.distanceKm : 1;
+        const calculatedFee = 20 + Math.round(sellerDistanceKm * 5);
+        const sellerDeliveryFee = Math.max(20, Math.min(30, calculatedFee));
+        
+        const sellerSmallCartFee = 0;
+        const sellerHandlingCharge = 0;
+        const sellerGrandTotal = sellerCartTotal + sellerDeliveryFee;
 
-      const { error: itemsErr } = await supabase
-        .from('order_items')
-        .insert(orderItems);
+        const payload = {
+          customer_id: customerId,
+          seller_id: sellerId,
+          status: 'placed',
+          total_amount: sellerGrandTotal,
+          delivery_partner_fee: sellerDeliveryFee,
+          items_total: sellerCartTotal,
+          handling_charge: sellerHandlingCharge,
+          small_cart_fee: sellerSmallCartFee,
+          delivery_address: 'Kirandul, Dantewada District, Chhattisgarh – 494556',
+          delivery_location: `POINT(${userCoords.longitude} ${userCoords.latitude})`,
+          payment_method: method,
+          payment_status: method === 'upi' ? 'paid' : 'pending',
+          upi_transaction_id: txnId,
+          upi_screenshot_url: screenshotUrl,
+        };
 
-      if (itemsErr) throw itemsErr;
+        const { data, error } = await supabase
+          .from('orders')
+          .insert([payload])
+          .select('id')
+          .single();
 
-      setActiveOrderTrackingId(data.id);
-      localStorage.setItem('kdlgoods_customer_active_tracking_id', data.id);
+        if (error) throw error;
+
+        if (!firstOrderId) {
+          firstOrderId = data.id;
+        }
+
+        // Insert individual items into order_items
+        const orderItems = sellerItems.map(item => ({
+          order_id: data.id,
+          product_id: item.id,
+          quantity: item.quantity,
+          price_at_order: item.price,
+        }));
+
+        const { error: itemsErr } = await supabase
+          .from('order_items')
+          .insert(orderItems);
+
+        if (itemsErr) throw itemsErr;
+      }
+
+      if (firstOrderId) {
+        setActiveOrderTrackingId(firstOrderId);
+        localStorage.setItem('kdlgoods_customer_active_tracking_id', firstOrderId);
+      }
       setCheckoutSuccess(true);
       setCart([]);
     } catch (err: any) {

@@ -394,3 +394,12 @@ CREATE POLICY "Customers can insert their order items"
               AND orders.customer_id = auth.uid()
         )
     );
+
+-- 17. Relax INSERT policy on public.orders to allow any authenticated user to create an order as customer
+DROP POLICY IF EXISTS "Customers can create orders" ON public.orders;
+CREATE POLICY "Customers can create orders" 
+    ON public.orders FOR INSERT 
+    TO authenticated 
+    WITH CHECK (
+        customer_id = auth.uid()
+    );
