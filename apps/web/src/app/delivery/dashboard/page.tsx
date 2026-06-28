@@ -279,13 +279,13 @@ export default function DeliveryDashboard() {
         .from('orders')
         .select('*')
         .eq('delivery_partner_id', currentDriverId)
-        .in('status', ['awaiting_pickup', 'driver_accepted', 'picked_up', 'out_for_delivery'])
+        .in('status', ['accepted', 'preparing', 'awaiting_pickup', 'driver_accepted', 'picked_up', 'out_for_delivery'])
         .order('updated_at', { ascending: false })
         .limit(1)
         .maybeSingle();
       if (!error && data) {
         setActiveOrder(data as Order);
-        if (data.status === 'awaiting_pickup') {
+        if (['accepted', 'preparing', 'awaiting_pickup'].includes(data.status)) {
           setShowAlert(true);
         }
       }
@@ -539,8 +539,18 @@ export default function DeliveryDashboard() {
       if (localBal) setBalance(parseFloat(localBal));
     }, 1000);
 
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible' && driverId) {
+        checkActiveOrder(driverId);
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('focus', handleVisibilityChange);
+
     return () => {
       supabase.removeChannel(orderSubscription);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('focus', handleVisibilityChange);
       clearInterval(checkLocalInterval);
     };
   }, [isOnline, activeOrder, driverId, loadingUser, dbConnected]);
