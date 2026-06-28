@@ -105,6 +105,9 @@ export default function CustomerDashboard() {
   const [sellerProducts, setSellerProducts] = useState<any[]>([]);
   const [loadingProducts, setLoadingProducts] = useState(false);
 
+  // Product image lightbox
+  const [lightboxImage, setLightboxImage] = useState<{ url: string; name: string } | null>(null);
+
   // Real-time tracking and chat states
   const [activeOrder, setActiveOrder] = useState<any | null>(null);
   const [driverCoords, setDriverCoords] = useState<LatLng | null>(null);
@@ -1344,33 +1347,63 @@ export default function CustomerDashboard() {
                   <p className="text-sm" style={{ color: '#444' }}>This store is adding items to our catalog. Check back soon!</p>
                 </div>
               ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   {sellerProducts.map(product => {
                     const cartQty = cart.find(item => item.id === product.id)?.quantity || 0;
                     return (
-                      <div key={product.id} className="p-4 rounded-xl flex justify-between items-center hover:border-[#3E3E3E] transition" style={{ background: '#222222', border: '1px solid #2E2E2E' }}>
-                        <div className="flex-1 pr-4">
-                          <div className="flex items-center gap-2 mb-1">
-                            <h3 className="font-bold text-sm">{product.name}</h3>
-                            {product.is_ready_for_30min && (
-                              <span className="text-[9px] px-1.5 py-0.5 rounded font-bold" style={{ background: 'rgba(247,209,8,0.12)', color: '#F7D108' }}>30MIN</span>
+                      <div key={product.id} className="rounded-xl overflow-hidden flex flex-col hover:border-[#3E3E3E] transition-all duration-200" style={{ background: '#222222', border: '1px solid #2E2E2E' }}>
+                        {/* Product Image */}
+                        <div
+                          className="relative w-full overflow-hidden cursor-pointer group"
+                          style={{ height: '160px', background: '#1A1A1A' }}
+                          onClick={() => product.image_url && setLightboxImage({ url: product.image_url, name: product.name })}
+                        >
+                          {product.image_url ? (
+                            <>
+                              <img
+                                src={product.image_url}
+                                alt={product.name}
+                                className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
+                              />
+                              {/* Hover overlay with zoom hint */}
+                              <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-200" style={{ background: 'rgba(0,0,0,0.45)' }}>
+                                <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold" style={{ background: 'rgba(247,209,8,0.9)', color: '#121212' }}>
+                                  <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg>
+                                  View Photo
+                                </div>
+                              </div>
+                            </>
+                          ) : (
+                            /* Placeholder when no image */
+                            <div className="w-full h-full flex flex-col items-center justify-center gap-2" style={{ color: '#3E3E3E' }}>
+                              <svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+                              <span className="text-[10px] font-semibold" style={{ color: '#444' }}>No Photo</span>
+                            </div>
+                          )}
+                          {/* 30MIN badge */}
+                          {product.is_ready_for_30min && (
+                            <span className="absolute top-2 left-2 text-[9px] px-1.5 py-0.5 rounded font-black" style={{ background: 'rgba(247,209,8,0.92)', color: '#121212' }}>⚡ 30MIN</span>
+                          )}
+                        </div>
+
+                        {/* Product Info & Cart Controls */}
+                        <div className="p-3.5 flex flex-col flex-1">
+                          <h3 className="font-bold text-sm leading-snug mb-1">{product.name}</h3>
+                          <p className="text-xs line-clamp-2 leading-relaxed flex-1" style={{ color: '#8A8A8A' }}>{product.description || 'No description available.'}</p>
+                          <div className="flex items-center justify-between mt-3">
+                            <span className="font-extrabold text-base" style={{ color: '#F5F5F5' }}>{formatINR(product.price)}</span>
+                            {cartQty > 0 ? (
+                              <div className="flex items-center rounded-lg p-1.5 gap-3" style={{ background: '#F7D108' }}>
+                                <button onClick={() => removeFromCart(product.id)} className="font-bold" style={{ color: '#121212' }}><Minus size={14} /></button>
+                                <span className="text-xs font-bold font-mono" style={{ color: '#121212' }}>{cartQty}</span>
+                                <button onClick={() => addToCart(product)} className="font-bold" style={{ color: '#121212' }}><Plus size={14} /></button>
+                              </div>
+                            ) : (
+                              <button onClick={() => addToCart(product)} className="btn-primary text-xs py-1.5 px-4">
+                                Add
+                              </button>
                             )}
                           </div>
-                          <p className="text-xs line-clamp-2 leading-relaxed" style={{ color: '#8A8A8A' }}>{product.description || 'No description available.'}</p>
-                          <span className="font-bold mt-2 block" style={{ color: '#F5F5F5' }}>{formatINR(product.price)}</span>
-                        </div>
-                        <div>
-                          {cartQty > 0 ? (
-                            <div className="flex items-center rounded-lg p-1.5 gap-3" style={{ background: '#F7D108' }}>
-                              <button onClick={() => removeFromCart(product.id)} className="font-bold" style={{ color: '#121212' }}><Minus size={14} /></button>
-                              <span className="text-xs font-bold font-mono" style={{ color: '#121212' }}>{cartQty}</span>
-                              <button onClick={() => addToCart(product)} className="font-bold" style={{ color: '#121212' }}><Plus size={14} /></button>
-                            </div>
-                          ) : (
-                            <button onClick={() => addToCart(product)} className="btn-primary text-xs py-1.5 px-3">
-                              Add
-                            </button>
-                          )}
                         </div>
                       </div>
                     );
@@ -1901,6 +1934,48 @@ export default function CustomerDashboard() {
             
             <div className="pt-6 mt-6 border-t border-zinc-850 text-center">
               <span className="text-[10px] text-zinc-600">KDLGOODS Customer Dashboard v2.0.1</span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Product Image Lightbox Modal */}
+      {lightboxImage && (
+        <div
+          className="fixed inset-0 z-[9999] flex items-center justify-center p-4"
+          style={{ background: 'rgba(0,0,0,0.88)', backdropFilter: 'blur(8px)' }}
+          onClick={() => setLightboxImage(null)}
+        >
+          <div
+            className="relative max-w-2xl w-full rounded-2xl overflow-hidden shadow-2xl"
+            style={{ background: '#1A1A1A', border: '1px solid #3E3E3E' }}
+            onClick={e => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="flex items-center justify-between px-4 py-3" style={{ borderBottom: '1px solid #2E2E2E' }}>
+              <p className="font-bold text-sm truncate pr-4" style={{ color: '#F5F5F5' }}>{lightboxImage.name}</p>
+              <button
+                onClick={() => setLightboxImage(null)}
+                className="p-1.5 rounded-full hover:bg-zinc-800 transition"
+                style={{ color: '#8A8A8A' }}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Full Image */}
+            <div className="w-full flex items-center justify-center" style={{ background: '#111', maxHeight: '75vh' }}>
+              <img
+                src={lightboxImage.url}
+                alt={lightboxImage.name}
+                className="object-contain w-full"
+                style={{ maxHeight: '70vh' }}
+              />
+            </div>
+
+            {/* Footer hint */}
+            <div className="px-4 py-2 text-center">
+              <p className="text-[10px]" style={{ color: '#555' }}>Tap outside or press ✕ to close</p>
             </div>
           </div>
         </div>
