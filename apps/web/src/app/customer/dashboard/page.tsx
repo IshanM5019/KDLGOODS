@@ -15,7 +15,7 @@ import {
 import {
   ShoppingBag, MapPin, Zap, AlertTriangle, ShieldCheck,
   Search, ChevronRight, Navigation, Loader2, Plus, Minus, X, Check, PackageSearch, Store,
-  MessageSquare, MessageCircle, CreditCard, Settings
+  MessageSquare, MessageCircle, CreditCard, Settings, History
 } from 'lucide-react';
 
 
@@ -81,6 +81,9 @@ export default function CustomerDashboard() {
   const [showUpiGateway, setShowUpiGateway] = useState(false);
   const [userPhone, setUserPhone] = useState<string | null>(null);
   const [showSettingsDrawer, setShowSettingsDrawer] = useState(false);
+  const [showHistoryDrawer, setShowHistoryDrawer] = useState(false);
+  const [orderHistory, setOrderHistory] = useState<any[]>([]);
+  const [loadingHistory, setLoadingHistory] = useState(false);
   const [profileName, setProfileName] = useState('');
   const [profileAddress, setProfileAddress] = useState('');
   const [profileAvatarUrl, setProfileAvatarUrl] = useState('');
@@ -664,6 +667,52 @@ export default function CustomerDashboard() {
     }
   };
 
+  const fetchOrderHistory = async () => {
+    if (!customerId) return;
+    setLoadingHistory(true);
+    try {
+      const { data, error } = await supabase
+        .from('orders')
+        .select(`
+          id,
+          status,
+          total_amount,
+          created_at,
+          payment_method,
+          payment_status,
+          sellers ( store_name )
+        `)
+        .eq('customer_id', customerId)
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+      setOrderHistory(data || []);
+    } catch (err) {
+      console.error('Failed to fetch order history:', err);
+    } finally {
+      setLoadingHistory(false);
+    }
+  };
+
+  const handleCancelOrder = async (orderId: string) => {
+    if (!confirm('Are you sure you want to cancel this order?')) return;
+    try {
+      const { error } = await supabase
+        .from('orders')
+        .update({ status: 'cancelled' })
+        .eq('id', orderId);
+      
+      if (error) throw error;
+      
+      setActiveOrderTrackingId(null);
+      setActiveOrder(null);
+      alert('Order cancelled successfully.');
+      fetchOrderHistory();
+    } catch (err: any) {
+      alert('Failed to cancel order: ' + err.message);
+    }
+  };
+
   const handleProfileSave = async (e: React.FormEvent) => {
     e.preventDefault();
     setProfileError(null);
@@ -835,6 +884,19 @@ export default function CustomerDashboard() {
               {userCoords.latitude.toFixed(4)}°N, {userCoords.longitude.toFixed(4)}°E
             </span>
           </div>
+
+          {/* Order History Button */}
+          <button
+            onClick={() => {
+              setShowHistoryDrawer(true);
+              fetchOrderHistory();
+            }}
+            className="flex items-center justify-center p-2 rounded-lg transition hover:bg-zinc-800"
+            style={{ background: '#222222', border: '1px solid #2E2E2E' }}
+            title="Order History"
+          >
+            <History size={18} className="text-yellow-500" />
+          </button>
 
           {/* Profile & Settings Cog */}
           <button
@@ -1232,6 +1294,14 @@ export default function CustomerDashboard() {
                         <span className="text-sm font-extrabold text-white">{formatINR(activeOrder.total_amount)}</span>
                       </div>
                     </div>
+                    {activeOrder.status === 'placed' && (
+                      <button
+                        onClick={() => handleCancelOrder(activeOrder.id)}
+                        className="mt-4 w-full py-2.5 rounded-xl font-bold text-xs bg-red-600/20 border border-red-500/30 text-red-400 hover:bg-red-600/30 transition shadow-lg shadow-red-950/10"
+                      >
+                        Cancel Order
+                      </button>
+                    )}
                   </div>
                 </div>
 
@@ -2006,6 +2076,85 @@ export default function CustomerDashboard() {
             {/* Footer hint */}
             <div className="px-4 py-2 text-center">
               <p className="text-[10px]" style={{ color: '#555' }}>Tap outside or press ✕ to close</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Order History Drawer */}
+      {showHistoryDrawer && (
+        <div className="fixed inset-0 z-50 flex justify-end bg-black/60 backdrop-blur-sm animate-fade-in">
+          <div className="w-full max-w-md h-full bg-[#1A1A1A] border-l border-zinc-800 p-6 flex flex-col justify-between overflow-y-auto shadow-2xl">
+            <div>
+              {/* Header */}
+              <div className="flex justify-between items-center pb-4 border-b border-zinc-850 mb-6">
+                <div className="flex items-center gap-2">
+                  <History size={20} className="text-yellow-500" />
+                  <h3 className="text-base font-black text-white">Your Order History</h3>
+                </div>
+                <button
+                  onClick={() => setShowHistoryDrawer(false)}
+                  className="text-zinc-500 hover:text-white transition"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+
+              {/* Order List */}
+              {loadingHistory ? (
+                <div className="flex flex-col items-center justify-center py-20 gap-2">
+                  <Loader2 className="animate-spin text-yellow-500" size={24} />
+                  <p className="text-xs text-zinc-500">Loading your history...</p>
+                </div>
+              ) : orderHistory.length === 0 ? (
+                <div className="text-center py-20 text-zinc-500 text-xs">
+                  No orders placed yet.
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {orderHistory.map((order) => (
+                    <div 
+                      key={order.id} 
+                      className="p-4 rounded-xl border border-zinc-800 bg-zinc-900/50 hover:bg-zinc-900 transition flex flex-col gap-2"
+                    >
+                      <div className="flex justify-between items-start">
+                        <div>
+                          <h4 className="text-xs font-black text-white">{order.sellers?.store_name || 'Store'}</h4>
+                          <span className="text-[10px] text-zinc-500 block font-mono mt-0.5">{order.id.slice(0, 8)}...</span>
+                        </div>
+                        <span 
+                          className={`text-[9px] px-2 py-0.5 rounded-full font-bold uppercase ${
+                            order.status === 'delivered'
+                              ? 'bg-green-500/10 text-green-400 border border-green-500/20'
+                              : order.status === 'cancelled'
+                              ? 'bg-red-500/10 text-red-400 border border-red-500/20'
+                              : 'bg-yellow-500/10 text-yellow-500 border border-yellow-500/20'
+                          }`}
+                        >
+                          {order.status}
+                        </span>
+                      </div>
+
+                      <div className="flex justify-between items-center text-xs mt-1 border-t border-zinc-850 pt-2">
+                        <div className="text-zinc-400">
+                          <span className="block text-[10px] text-zinc-500">{new Date(order.created_at).toLocaleDateString()}</span>
+                          <span className="text-[10px] uppercase font-bold text-zinc-500">{order.payment_method} · {order.payment_status}</span>
+                        </div>
+                        <strong className="text-white font-extrabold">{formatINR(order.total_amount)}</strong>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="mt-8 border-t border-zinc-850 pt-4">
+              <button
+                onClick={() => setShowHistoryDrawer(false)}
+                className="w-full py-2.5 rounded-xl bg-zinc-850 hover:bg-zinc-800 text-zinc-300 font-bold text-xs transition border border-zinc-800"
+              >
+                Close Drawer
+              </button>
             </div>
           </div>
         </div>

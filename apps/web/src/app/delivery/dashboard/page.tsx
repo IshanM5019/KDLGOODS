@@ -9,7 +9,7 @@ import {
   ToggleLeft, ToggleRight, ShieldAlert, ArrowRight, RefreshCw,
   MessageSquare, DollarSign, LifeBuoy, CreditCard, ChevronRight,
   TrendingUp, Send, CheckCircle2, User, Landmark, HelpCircle, PhoneCall,
-  ChevronDown, MessageCircle, AlertTriangle
+  ChevronDown, MessageCircle, AlertTriangle, History
 } from 'lucide-react';
 
 // Programmatic chime using Web Audio API
@@ -116,6 +116,8 @@ export default function DeliveryDashboard() {
   const [notifPush, setNotifPush] = useState(true);
   const [loadingUser, setLoadingUser] = useState(true);
   const [dbConnected, setDbConnected] = useState(true);
+  const [pastDeliveries, setPastDeliveries] = useState<any[]>([]);
+  const [loadingPastDeliveries, setLoadingPastDeliveries] = useState(false);
   const [activeOrder, setActiveOrder] = useState<Order | null>(() => {
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem('kdlgoods_driver_active_order');
@@ -387,6 +389,9 @@ export default function DeliveryDashboard() {
           setBalance(Number(partnerData.balance) || 0);
           localStorage.setItem('kdlgoods_rider_balance', String(partnerData.balance || '0'));
         }
+
+        // Fetch past deliveries for order history
+        await fetchPastDeliveries(currentDriverId);
 
         // Sync coordinate to local storage on mount so customer & seller pages can read it immediately
         const partners = JSON.parse(localStorage.getItem('kdlgoods_delivery_partners') || '{}');
@@ -1115,18 +1120,64 @@ export default function DeliveryDashboard() {
     }
   };
 
+  const fetchPastDeliveries = async (currentDriverId = driverId) => {
+    if (!currentDriverId || currentDriverId === '00000000-0000-0000-0000-000000000000') return;
+    setLoadingPastDeliveries(true);
+    try {
+      const { data, error } = await supabase
+        .from('orders')
+        .select(`
+          id,
+          status,
+          total_amount,
+          delivery_partner_fee,
+          created_at,
+          sellers ( store_name )
+        `)
+        .eq('delivery_partner_id', currentDriverId)
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+      setPastDeliveries(data || []);
+    } catch (err) {
+      console.error('Failed to fetch driver past deliveries:', err);
+    } finally {
+      setLoadingPastDeliveries(false);
+    }
+  };
+
   // Instant Cashout Action
   const triggerCashout = () => {
     if (balance <= 0) return;
     setCashoutProcessing(true);
     setShowCashoutModal(true);
 
-    setTimeout(() => {
+    setTimeout(async () => {
       setCashoutProcessing(false);
       setCashoutSuccess(true);
       
       const cashoutAmt = balance;
       setBalance(0);
+      localStorage.setItem('kdlgoods_rider_balance', '0');
+
+      if (dbConnected) {
+        // Insert into payout_logs
+        await supabase
+          .from('payout_logs')
+          .insert({
+            user_id: driverId,
+            amount: cashoutAmt,
+            account_details: 'UPI Transfer Request (Instant Cashout)',
+            status: 'pending'
+          });
+          
+        // Deduct driver's balance in delivery_partners
+        await supabase
+          .from('delivery_partners')
+          .update({ balance: 0 })
+          .eq('id', driverId);
+      }
+
       setTransactions(prev => [
         {
           id: `TXN-${Math.floor(1000 + Math.random() * 9000)}`,
@@ -1648,26 +1699,59 @@ export default function DeliveryDashboard() {
             <div className="space-y-2.5">
               <h3 className="text-xs font-bold text-zinc-500 uppercase tracking-wider pl-1">Earnings &amp; Payouts Transcript</h3>
               <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
-                {transactions.map(txn => (
-                  <div key={txn.id} className="p-3.5 rounded-xl flex items-center justify-between" style={{ background: '#1A1A1A', border: '1px solid #2E2E2E' }}>
-                    <div className="flex items-center gap-3">
-                      <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-xs font-bold ${
-                        txn.type === 'delivery' 
-                          ? 'bg-green-500/10 text-green-500 border border-green-500/20' 
-                          : 'bg-red-500/10 text-red-500 border border-red-500/20'
-                      }`}>
-                        {txn.type === 'delivery' ? '+' : '-'}
+                {dbConnected ? (
+                  pastDeliveries.length === 0 ? (
+                    <p className="text-center text-[11px] text-zinc-550 py-6">No delivery logs found in history.</p>
+                  ) : (
+                    pastDeliveries.map(delivery => {
+                      const isDelivered = delivery.status === 'delivered';
+                      return (
+                        <div key={delivery.id} className="p-3.5 rounded-xl flex items-center justify-between" style={{ background: '#1A1A1A', border: '1px solid #2E2E2E' }}>
+                          <div className="flex items-center gap-3">
+                            <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-xs font-bold ${
+                              isDelivered 
+                                ? 'bg-green-500/10 text-green-500 border border-green-500/20' 
+                                : 'bg-red-500/10 text-red-500 border border-red-500/20'
+                            }`}>
+                              {isDelivered ? '+' : '✕'}
+                            </div>
+                            <div>
+                              <h4 className="text-xs font-bold text-white">{delivery.sellers?.store_name || 'Store'}</h4>
+                              <p className="text-[9px] mt-0.5" style={{ color: '#8A8A8A' }}>
+                                ORDER #{delivery.id.slice(0, 8).toUpperCase()} · {new Date(delivery.created_at).toLocaleDateString()}
+                              </p>
+                              <span className="text-[8px] text-zinc-500 block uppercase mt-0.5">Status: {delivery.status}</span>
+                            </div>
+                          </div>
+                          <span className={`text-xs font-black ${isDelivered ? 'text-green-500' : 'text-red-400'}`}>
+                            {isDelivered ? `+${formatINR(delivery.delivery_partner_fee || 25)}` : '₹0.00'}
+                          </span>
+                        </div>
+                      );
+                    })
+                  )
+                ) : (
+                  transactions.map(txn => (
+                    <div key={txn.id} className="p-3.5 rounded-xl flex items-center justify-between" style={{ background: '#1A1A1A', border: '1px solid #2E2E2E' }}>
+                      <div className="flex items-center gap-3">
+                        <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-xs font-bold ${
+                          txn.type === 'delivery' 
+                            ? 'bg-green-500/10 text-green-500 border border-green-500/20' 
+                            : 'bg-red-500/10 text-red-500 border border-red-500/20'
+                        }`}>
+                          {txn.type === 'delivery' ? '+' : '-'}
+                        </div>
+                        <div>
+                          <h4 className="text-xs font-bold text-white">{txn.description}</h4>
+                          <p className="text-[9px] mt-0.5" style={{ color: '#8A8A8A' }}>{txn.id} · {txn.date}</p>
+                        </div>
                       </div>
-                      <div>
-                        <h4 className="text-xs font-bold text-white">{txn.description}</h4>
-                        <p className="text-[9px] mt-0.5" style={{ color: '#8A8A8A' }}>{txn.id} · {txn.date}</p>
-                      </div>
+                      <span className={`text-xs font-black ${txn.type === 'delivery' ? 'text-green-500' : 'text-red-400'}`}>
+                        {txn.type === 'delivery' ? '+' : ''}{formatINR(txn.amount)}
+                      </span>
                     </div>
-                    <span className={`text-xs font-black ${txn.type === 'delivery' ? 'text-green-500' : 'text-red-400'}`}>
-                      {txn.type === 'delivery' ? '+' : ''}{formatINR(txn.amount)}
-                    </span>
-                  </div>
-                ))}
+                  ))
+                )}
               </div>
             </div>
 

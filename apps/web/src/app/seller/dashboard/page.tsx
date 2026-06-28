@@ -7,7 +7,7 @@ import { Product, Order, OrderStatus, CreateProductSchema, formatINR, DANTEWADA_
 import {
   Plus, Edit, Trash2, Check, X, Clock, ToggleLeft, ToggleRight,
   Store, ShoppingBag, Loader2, AlertCircle, BarChart2, ShieldAlert,
-  ImagePlus, PackageSearch, InboxIcon, Settings, MessageSquare, MessageCircle
+  ImagePlus, PackageSearch, InboxIcon, Settings, MessageSquare, MessageCircle, History
 } from 'lucide-react';
 
 // ─── Supabase Storage bucket for product images ───────────────────────────────
@@ -71,7 +71,7 @@ export default function SellerDashboard() {
   const router = useRouter();
   const [products, setProducts] = useState<Product[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
-  const [activeTab, setActiveTab] = useState<'orders' | 'catalog' | 'profile'>('orders');
+  const [activeTab, setActiveTab] = useState<'orders' | 'catalog' | 'history' | 'profile'>('orders');
   const [loading, setLoading] = useState(true);
   const [dbConnected, setDbConnected] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -1146,6 +1146,17 @@ export default function SellerDashboard() {
               <span>Inventory Catalog</span>
             </button>
             <button
+              onClick={() => setActiveTab('history')}
+              className={`pb-3 px-6 text-sm font-bold border-b-2 transition flex items-center gap-2 ${
+                activeTab === 'history'
+                  ? 'border-yellow-500 text-yellow-500'
+                  : 'border-transparent text-zinc-400 hover:text-zinc-200'
+              }`}
+            >
+              <History size={16} />
+              <span>Order History</span>
+            </button>
+            <button
               onClick={() => setActiveTab('profile')}
               className={`pb-3 px-6 text-sm font-bold border-b-2 transition flex items-center gap-2 ${
                 activeTab === 'profile'
@@ -1158,7 +1169,7 @@ export default function SellerDashboard() {
             </button>
           </div>
 
-          {activeTab !== 'profile' && (
+          {activeTab !== 'profile' && activeTab !== 'history' && (
             <>
           {/* Pending Orders Flash Banner */}
           {orders.some(o => o.status === 'placed') && (
@@ -1550,6 +1561,50 @@ export default function SellerDashboard() {
             </div>
           </div>
             </>
+          )}
+
+          {activeTab === 'history' && (
+            <div className="rounded-xl p-5" style={{ background: '#1A1A1A', border: '1px solid #2E2E2E' }}>
+              <h3 className="text-lg font-bold mb-1">Store Order History Log</h3>
+              <p className="text-sm mb-5" style={{ color: '#8A8A8A' }}>Review and track all your completed and cancelled orders</p>
+
+              {orders.filter(o => ['delivered', 'cancelled'].includes(o.status)).length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-20 text-center gap-3 rounded-lg" style={{ border: '1px dashed #2E2E2E' }}>
+                  <History size={32} style={{ color: '#444' }} />
+                  <p className="text-sm" style={{ color: '#8A8A8A' }}>No past orders found in history.</p>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {orders.filter(o => ['delivered', 'cancelled'].includes(o.status)).map(order => {
+                    const orderDate = new Date(order.created_at).toLocaleDateString();
+                    const statusColors: Record<string, { bg: string; text: string }> = {
+                      delivered: { bg: 'rgba(34,197,94,0.08)', text: '#16A34A' },
+                      cancelled: { bg: 'rgba(239,68,68,0.1)', text: '#EF4444' },
+                    };
+                    const sc = statusColors[order.status] ?? { bg: '#2E2E2E', text: '#8A8A8A' };
+                    return (
+                      <div key={order.id} className="p-4 rounded-xl flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4" style={{ border: '1px solid #2E2E2E', background: '#222222' }}>
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-bold text-white font-mono">ORDER #{order.id.slice(0, 8).toUpperCase()}</span>
+                            <span className="px-2 py-0.5 rounded text-[9px] font-black uppercase" style={{ background: sc.bg, color: sc.text }}>
+                              {order.status}
+                            </span>
+                          </div>
+                          <p className="text-xs text-zinc-400">Customer: <strong className="text-zinc-200">{order.customer?.full_name || 'Customer'}</strong></p>
+                          <span className="text-[10px]" style={{ color: '#8A8A8A' }}>Placed on: {orderDate} · Payment: {order.payment_method?.toUpperCase()}</span>
+                        </div>
+                        
+                        <div className="text-right flex flex-col items-end gap-1">
+                          <strong className="text-sm font-extrabold text-white">{formatINR(order.total_amount)}</strong>
+                          <span className="text-[10px] text-zinc-500 font-bold">Earnings: {formatINR(order.items_total)}</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
           )}
         </>
       )}
