@@ -19,7 +19,18 @@ export default function HomePage() {
           <MapPin size={14} style={{ color: '#F7D108' }} />
           <span style={{ color: '#F7D108', fontSize: '0.8rem', fontWeight: 600 }}>Kirandul, Dantewada</span>
         </div>
-        <div style={{ display: 'flex', gap: '0.75rem' }}>
+        <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
+          <a
+            href="#download"
+            style={{
+              display: 'flex', alignItems: 'center', gap: '0.4rem',
+              padding: '0.45rem 1rem', borderRadius: '0.5rem',
+              background: 'rgba(247,209,8,0.12)', border: '1px solid rgba(247,209,8,0.35)',
+              color: '#F7D108', fontWeight: 700, fontSize: '0.85rem', textDecoration: 'none',
+            }}
+          >
+            📲 Download App
+          </a>
           <Link href="/auth/signin" style={{ padding: '0.5rem 1.1rem', borderRadius: '0.5rem', border: '1px solid #2E2E2E', color: '#F5F5F5', fontWeight: 600, textDecoration: 'none', fontSize: '0.9rem' }}>
             Sign In
           </Link>
@@ -38,7 +49,7 @@ export default function HomePage() {
             <span style={{ color: '#F7D108', fontSize: '0.8rem', fontWeight: 700 }}>NOW LIVE IN KIRANDUL, DANTEWADA</span>
           </div>
           <h1 style={{ fontSize: '3.5rem', fontWeight: 900, lineHeight: 1.1, marginBottom: '1.5rem', color: '#F5F5F5' }}>
-            Groceries & Essentials<br />
+            Groceries &amp; Essentials<br />
             <span style={{ color: '#F7D108' }}>Delivered in 30 Minutes</span>
           </h1>
           <p style={{ color: '#8A8A8A', fontSize: '1.2rem', maxWidth: '660px', margin: '0 auto', lineHeight: 1.7 }}>
@@ -97,6 +108,162 @@ export default function HomePage() {
           </div>
         </div>
 
+        {/* ── Download the App Section ─────────────────────────────────────── */}
+        <div
+          id="download"
+          style={{
+            marginBottom: '5rem',
+            borderRadius: '1.25rem',
+            overflow: 'hidden',
+            border: '1px solid #2E2E2E',
+            background: 'linear-gradient(135deg, #1A1A1A 0%, #111 50%, #1A1200 100%)',
+            position: 'relative',
+          }}
+        >
+          {/* Decorative glow */}
+          <div style={{
+            position: 'absolute', top: '-60px', right: '-60px', width: '240px', height: '240px',
+            borderRadius: '50%', background: 'radial-gradient(circle, rgba(247,209,8,0.12) 0%, transparent 70%)',
+            pointerEvents: 'none',
+          }} />
+
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '2rem', alignItems: 'center', padding: '3rem 2.5rem' }}>
+            {/* Left: Copy */}
+            <div style={{ flex: '1 1 320px', position: 'relative' }}>
+              <span style={{
+                display: 'inline-flex', alignItems: 'center', gap: '0.4rem',
+                background: 'rgba(247,209,8,0.12)', border: '1px solid rgba(247,209,8,0.3)',
+                borderRadius: '999px', padding: '0.35rem 0.9rem', marginBottom: '1.25rem',
+                color: '#F7D108', fontSize: '0.75rem', fontWeight: 800, letterSpacing: '0.04em',
+              }}>
+                📱 MOBILE APP — ANDROID
+              </span>
+              <h2 style={{ fontSize: '2.2rem', fontWeight: 900, color: '#F5F5F5', lineHeight: 1.15, marginBottom: '1rem' }}>
+                Shop on the Go.<br />
+                <span style={{ color: '#F7D108' }}>Download the App.</span>
+              </h2>
+              <p style={{ color: '#8A8A8A', fontSize: '0.95rem', lineHeight: 1.7, marginBottom: '1.75rem', maxWidth: '480px' }}>
+                Get the full KDLGOODS experience on your Android phone — browse stores, tap to order groceries, track your rider live, and pay cash on delivery. No Play Store needed.
+              </p>
+
+              {/* Feature pills */}
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.6rem', marginBottom: '2rem' }}>
+                {['⚡ 30-Min Delivery', '📸 Product Photos', '🛒 Live Cart', '💵 Cash on Delivery', '🗺️ Rider Tracking'].map(f => (
+                  <span key={f} style={{
+                    background: 'rgba(255,255,255,0.05)', border: '1px solid #2E2E2E',
+                    borderRadius: '999px', padding: '0.3rem 0.75rem', color: '#B0B0B0',
+                    fontSize: '0.8rem', fontWeight: 600,
+                  }}>{f}</span>
+                ))}
+              </div>
+
+              {/* Download buttons */}
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1rem', alignItems: 'center' }}>
+                {/* Primary APK download */}
+                <a
+                  href="https://expo.dev/accounts/ishanm5019/projects/kdlgoods"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: '0.75rem',
+                    background: '#F7D108', color: '#121212',
+                    padding: '0.85rem 1.5rem', borderRadius: '0.75rem',
+                    fontWeight: 800, fontSize: '0.95rem', textDecoration: 'none',
+                    boxShadow: '0 4px 24px rgba(247,209,8,0.25)',
+                  }}
+                >
+                  <span style={{ fontSize: '1.4rem' }}>⬇️</span>
+                  <div style={{ lineHeight: 1.2 }}>
+                    <div style={{ fontSize: '0.7rem', fontWeight: 600, opacity: 0.7 }}>Download for</div>
+                    <div style={{ fontSize: '1rem', fontWeight: 900 }}>Android (.apk)</div>
+                  </div>
+                </a>
+
+                {/* QR hint */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                  <div style={{
+                    width: '52px', height: '52px', borderRadius: '0.6rem',
+                    background: '#fff', display: 'grid', placeItems: 'center', flexShrink: 0,
+                    fontSize: '1.6rem',
+                  }}>
+                    📲
+                  </div>
+                  <div>
+                    <p style={{ color: '#F5F5F5', fontSize: '0.82rem', fontWeight: 700, margin: 0 }}>Scan QR after build</p>
+                    <p style={{ color: '#555', fontSize: '0.75rem', margin: 0 }}>or install the .apk directly</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Install tip */}
+              <p style={{ marginTop: '1.25rem', color: '#555', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                <span>ℹ️</span>
+                On Android, enable <strong style={{ color: '#8A8A8A' }}>&ldquo;Install from unknown sources&rdquo;</strong> in Settings before installing.
+              </p>
+            </div>
+
+            {/* Right: App preview card */}
+            <div style={{ flex: '0 1 260px', display: 'flex', justifyContent: 'center' }}>
+              <div style={{
+                width: '220px',
+                background: '#121212',
+                borderRadius: '2rem',
+                border: '6px solid #2E2E2E',
+                boxShadow: '0 24px 80px rgba(0,0,0,0.6), 0 0 0 1px #1A1A1A',
+                overflow: 'hidden',
+              }}>
+                {/* Notch */}
+                <div style={{ height: '28px', background: '#0A0A0A', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <div style={{ width: '60px', height: '8px', background: '#2E2E2E', borderRadius: '999px' }} />
+                </div>
+                {/* Status bar */}
+                <div style={{ background: '#121212', padding: '6px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ color: '#F5F5F5', fontSize: '9px', fontWeight: 800 }}>⚡ KDLGOODS</span>
+                  <span style={{ color: '#8A8A8A', fontSize: '9px' }}>🛒</span>
+                </div>
+                {/* App screen mock */}
+                <div style={{ background: '#1A1A1A', padding: '10px' }}>
+                  {/* Store card mock */}
+                  <div style={{ background: '#222', borderRadius: '8px', padding: '10px', marginBottom: '8px', border: '1px solid #2E2E2E' }}>
+                    <div style={{ color: '#F7D108', fontSize: '10px', fontWeight: 900, marginBottom: '3px' }}>Kirandul Store ⚡</div>
+                    <div style={{ color: '#8A8A8A', fontSize: '8px', marginBottom: '6px' }}>📍 0.4 km away</div>
+                    <div style={{ background: '#F7D108', borderRadius: '4px', padding: '4px', textAlign: 'center' }}>
+                      <span style={{ color: '#121212', fontSize: '8px', fontWeight: 900 }}>Browse Menu →</span>
+                    </div>
+                  </div>
+                  {/* Product grid mock */}
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px' }}>
+                    {[
+                      { name: 'Rice (5kg)', price: '₹280', emoji: '🌾' },
+                      { name: 'Toor Dal', price: '₹120', emoji: '🫘' },
+                      { name: 'Cooking Oil', price: '₹160', emoji: '🛢️' },
+                      { name: 'Sugar', price: '₹55', emoji: '🍬' },
+                    ].map(p => (
+                      <div key={p.name} style={{ background: '#2A2A2A', borderRadius: '6px', padding: '8px', border: '1px solid #2E2E2E' }}>
+                        <div style={{ fontSize: '18px', textAlign: 'center', marginBottom: '3px' }}>{p.emoji}</div>
+                        <div style={{ color: '#F5F5F5', fontSize: '7px', fontWeight: 700, textAlign: 'center', marginBottom: '2px' }}>{p.name}</div>
+                        <div style={{ color: '#F7D108', fontSize: '8px', fontWeight: 900, textAlign: 'center', marginBottom: '5px' }}>{p.price}</div>
+                        <div style={{ background: '#F7D108', borderRadius: '3px', padding: '2px', textAlign: 'center' }}>
+                          <span style={{ color: '#121212', fontSize: '7px', fontWeight: 900 }}>+ Add</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  {/* Cart bar mock */}
+                  <div style={{ background: '#F7D108', borderRadius: '6px', padding: '8px 10px', marginTop: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ color: '#121212', fontSize: '8px', fontWeight: 900 }}>🛒 3 items</span>
+                    <span style={{ color: '#121212', fontSize: '8px', fontWeight: 900 }}>₹655 →</span>
+                  </div>
+                </div>
+                {/* Home bar */}
+                <div style={{ background: '#0A0A0A', height: '22px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <div style={{ width: '40px', height: '4px', background: '#2E2E2E', borderRadius: '999px' }} />
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
         {/* SLA Architecture Explainer */}
         <div className="glass" style={{ borderRadius: 'var(--radius)', padding: '2rem', display: 'flex', flexWrap: 'wrap', gap: '2rem', alignItems: 'center' }}>
           <div style={{ flex: '1 1 300px' }}>
@@ -135,6 +302,8 @@ export default function HomePage() {
       {/* Footer */}
       <footer style={{ borderTop: '1px solid #2E2E2E', padding: '1.5rem 2rem', textAlign: 'center', color: '#8A8A8A', fontSize: '0.85rem' }}>
         KDLGOODS — Hyper-Local Delivery for Kirandul, Dantewada, Chhattisgarh. Powered by Next.js &amp; Supabase.
+        <span style={{ margin: '0 0.75rem', opacity: 0.3 }}>|</span>
+        <a href="#download" style={{ color: '#F7D108', textDecoration: 'none', fontWeight: 600 }}>📲 Download Android App</a>
       </footer>
     </div>
   );
