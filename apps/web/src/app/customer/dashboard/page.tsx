@@ -653,37 +653,12 @@ export default function CustomerDashboard() {
 
       if (error) throw error;
       setActiveOrderTrackingId(data.id);
-    } catch (err) {
-      console.warn('Supabase DB checkout failed. Falling back to local offline storage simulation:', err);
-      const mockOrderId = 'order-' + Math.floor(Math.random() * 10000);
-      const mockOrder = {
-        id: mockOrderId,
-        customer_id: customerId || 'cust-1',
-        seller_id: cart[0].seller_id,
-        delivery_partner_id: null,
-        status: 'placed',
-        total_amount: grandTotal,
-        delivery_partner_fee: deliveryPartnerFee,
-        items_total: cartTotal,
-        handling_charge: handlingCharge,
-        small_cart_fee: smallCartFee,
-        delivery_address: 'Kirandul, Dantewada District, Chhattisgarh – 494556',
-        delivery_location: { latitude: userCoords.latitude, longitude: userCoords.longitude },
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-        payment_method: method,
-        payment_status: method === 'upi' ? 'paid' : 'pending',
-        upi_transaction_id: txnId,
-        upi_screenshot_url: screenshotUrl,
-        driver_cash_submitted: false,
-      };
-      
-      const existing = JSON.parse(localStorage.getItem('kdlgoods_orders') || '[]');
-      localStorage.setItem('kdlgoods_orders', JSON.stringify([mockOrder, ...existing]));
-      setActiveOrderTrackingId(mockOrderId);
-    } finally {
       setCheckoutSuccess(true);
       setCart([]);
+    } catch (err: any) {
+      console.error('Supabase DB checkout failed:', err);
+      setPaymentError(err.message || 'Database checkout failed. Please check connection/schema.');
+    } finally {
       setCheckingOut(false);
       setShowCheckoutDetails(false);
     }

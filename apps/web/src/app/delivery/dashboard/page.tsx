@@ -1201,6 +1201,16 @@ export default function DeliveryDashboard() {
           </div>
         )}
 
+        {/* Offline/Database Error Warning Banner */}
+        {!dbConnected && (
+          <div className="mb-4 p-4 rounded-xl flex items-center justify-between text-xs font-semibold animate-pulse" style={{ background: 'rgba(245,158,11,0.15)', border: '1px solid rgba(245,158,11,0.3)', color: '#fbbf24' }}>
+            <div className="flex items-center gap-2">
+              <ShieldAlert size={16} />
+              <span>Running in Offline Simulation Mode (Database Schema mismatch or connection error). Please apply your Supabase migrations.</span>
+            </div>
+          </div>
+        )}
+
         <header className="flex justify-between items-center p-4 rounded-2xl" style={{ background: '#1A1A1A', border: '1px solid #2E2E2E' }}>
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl flex items-center justify-center bg-yellow-500/10 border border-yellow-500/20">
