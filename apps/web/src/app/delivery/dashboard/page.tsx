@@ -321,11 +321,29 @@ export default function DeliveryDashboard() {
         }
 
         // Verify role
-        const { data: profile, error: profileErr } = await supabase
+        let { data: profile, error: profileErr } = await supabase
           .from('profiles')
           .select('role, phone_number, full_name, avatar_url, address')
           .eq('id', user.id)
           .single();
+
+        if (profileErr || !profile) {
+          // If the profile is missing in the database, insert it on the fly
+          const { data: newProfile, error: insertErr } = await supabase
+            .from('profiles')
+            .insert({
+              id: user.id,
+              role: 'delivery',
+              full_name: user.user_metadata?.full_name || user.user_metadata?.name || 'User',
+              phone_number: user.phone || null,
+            })
+            .select()
+            .single();
+          if (!insertErr && newProfile) {
+            profile = newProfile;
+          }
+        }
+
         const userRole = profile?.role || user.user_metadata?.role || 'customer';
         setUserPhone(profile?.phone_number || null);
         setProfileName(profile?.full_name || '');
@@ -812,13 +830,14 @@ export default function DeliveryDashboard() {
 
       const { error } = await supabase
         .from('profiles')
-        .update({
+        .upsert({
+          id: user.id,
+          role: 'delivery',
           full_name: profileName,
           phone_number: userPhone,
           avatar_url: profileAvatarUrl,
           address: profileAddress,
-        })
-        .eq('id', user.id);
+        }, { onConflict: 'id' });
 
       if (error) throw error;
       setProfileSuccess('Profile saved successfully!');
