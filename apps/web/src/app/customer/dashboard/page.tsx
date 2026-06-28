@@ -656,6 +656,21 @@ export default function CustomerDashboard() {
         .single();
 
       if (error) throw error;
+
+      // Insert individual items into order_items
+      const orderItems = cart.map(item => ({
+        order_id: data.id,
+        product_id: item.id,
+        quantity: item.quantity,
+        price_at_order: item.price,
+      }));
+
+      const { error: itemsErr } = await supabase
+        .from('order_items')
+        .insert(orderItems);
+
+      if (itemsErr) throw itemsErr;
+
       setActiveOrderTrackingId(data.id);
       localStorage.setItem('kdlgoods_customer_active_tracking_id', data.id);
       setCheckoutSuccess(true);

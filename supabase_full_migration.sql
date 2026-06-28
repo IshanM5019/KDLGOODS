@@ -233,9 +233,15 @@ BEGIN
         SELECT location INTO seller_loc FROM public.sellers WHERE id = NEW.seller_id;
         
         IF seller_loc IS NOT NULL THEN
+            -- Find closest online driver who is NOT currently busy with an active order
             SELECT dp.id INTO nearest_driver_id
             FROM public.delivery_partners dp
             WHERE dp.is_online = true
+              AND NOT EXISTS (
+                  SELECT 1 FROM public.orders o 
+                  WHERE o.delivery_partner_id = dp.id 
+                    AND o.status NOT IN ('delivered', 'cancelled')
+              )
               AND ST_DWithin(dp.location, seller_loc, 10000)
             ORDER BY ST_Distance(dp.location, seller_loc) ASC
             LIMIT 1;
@@ -245,6 +251,11 @@ BEGIN
                 SELECT dp.id INTO nearest_driver_id
                 FROM public.delivery_partners dp
                 WHERE dp.is_online = true
+                  AND NOT EXISTS (
+                      SELECT 1 FROM public.orders o 
+                      WHERE o.delivery_partner_id = dp.id 
+                        AND o.status NOT IN ('delivered', 'cancelled')
+                  )
                 ORDER BY ST_Distance(dp.location, seller_loc) ASC
                 LIMIT 1;
             END IF;
@@ -284,17 +295,29 @@ BEGIN
             SELECT location INTO seller_loc FROM public.sellers WHERE id = pending_order.seller_id;
             
             IF seller_loc IS NOT NULL THEN
+                -- Find closest online driver who is NOT currently busy with an active order
                 SELECT dp.id INTO nearest_driver_id
                 FROM public.delivery_partners dp
                 WHERE dp.is_online = true
+                  AND NOT EXISTS (
+                      SELECT 1 FROM public.orders o 
+                      WHERE o.delivery_partner_id = dp.id 
+                        AND o.status NOT IN ('delivered', 'cancelled')
+                  )
                   AND ST_DWithin(dp.location, seller_loc, 10000)
                 ORDER BY ST_Distance(dp.location, seller_loc) ASC
                 LIMIT 1;
 
+                -- Fallback
                 IF nearest_driver_id IS NULL THEN
                     SELECT dp.id INTO nearest_driver_id
                     FROM public.delivery_partners dp
                     WHERE dp.is_online = true
+                      AND NOT EXISTS (
+                          SELECT 1 FROM public.orders o 
+                          WHERE o.delivery_partner_id = dp.id 
+                            AND o.status NOT IN ('delivered', 'cancelled')
+                      )
                     ORDER BY ST_Distance(dp.location, seller_loc) ASC
                     LIMIT 1;
                 END IF;
@@ -358,3 +381,16 @@ EXECUTE FUNCTION public.handle_order_delivery_payout();
 -- 15. Enable Supabase Realtime Publication for ALL Tables
 DROP PUBLICATION IF EXISTS supabase_realtime;
 CREATE PUBLICATION supabase_realtime FOR ALL TABLES;
+
+-- 16. Add INSERT RLS policy for order_items to allow customers to insert items under their own orders
+DROP POLICY IF EXISTS "Customers can insert their order items" ON public.order_items;
+CREATE POLICY "Customers can insert their order items" 
+    ON public.order_items FOR INSERT 
+    TO authenticated 
+    WITH CHECK (
+        EXISTS (
+            SELECT 1 FROM public.orders 
+            WHERE orders.id = order_items.order_id 
+              AND orders.customer_id = auth.uid()
+        )
+    );
