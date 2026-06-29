@@ -68,6 +68,8 @@ export default function CustomerDashboard() {
     return String(DANTEWADA_CENTER.longitude);
   });
   const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<any[]>([]);
+  const [searching, setSearching] = useState(false);
   const [showLocationWarning, setShowLocationWarning] = useState(false);
 
   // Cart
@@ -580,6 +582,38 @@ export default function CustomerDashboard() {
       setLoadingProducts(false);
     }
   };
+
+  useEffect(() => {
+    if (!searchQuery.trim()) {
+      setSearchResults([]);
+      return;
+    }
+
+    const delayDebounceFn = setTimeout(async () => {
+      setSearching(true);
+      try {
+        const { data, error } = await supabase
+          .from('products')
+          .select('*, sellers(store_name, address, location)')
+          .or(`name.ilike.%${searchQuery.trim()}%,description.ilike.%${searchQuery.trim()}%`)
+          .eq('is_available', true);
+
+        if (error) throw error;
+
+        // Filter search results to only show products from active sellers in SLA
+        const activeSellerIds = new Set(sellers.filter(s => s.withinSla && s.is_active).map(s => s.id));
+        const filtered = (data || []).filter((product: any) => product.sellers && activeSellerIds.has(product.seller_id));
+        setSearchResults(filtered);
+      } catch (err) {
+        console.error('Error searching products:', err);
+        setSearchResults([]);
+      } finally {
+        setSearching(false);
+      }
+    }, 300);
+
+    return () => clearTimeout(delayDebounceFn);
+  }, [searchQuery, sellers]);
 
   const handleUpdateCoords = () => {
     const lat = parseFloat(latInput);
@@ -1562,17 +1596,136 @@ export default function CustomerDashboard() {
               )}
             </div>
           ) : (
-            /* Storefront discovery list */
+            /* Storefront discovery list / Search results */
             <div>
-              <div className="flex justify-between items-center mb-5">
-                <div>
-                  <h2 className="text-xl font-bold">Active Stores Near You</h2>
-                  <p className="text-sm mt-0.5" style={{ color: '#8A8A8A' }}>Within {OPERATIONAL_GEOFENCE_KM} km SLA delivery radius in {TOWN_NAME}</p>
+              {/* Search Bar */}
+              <div className="relative mb-6">
+                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                  <Search size={18} className="text-zinc-500" />
                 </div>
-                <span className="text-xs font-bold px-3 py-1 rounded-full" style={{ background: 'rgba(247,209,8,0.1)', color: '#F7D108' }}>
-                  {activeSellersInSla.length} Online
-                </span>
+                <input
+                  type="text"
+                  className="w-full pl-10 pr-10 py-3 bg-[#1A1A1A] border border-[#2E2E2E] focus:border-yellow-500 rounded-xl text-sm text-slate-100 outline-none transition duration-200"
+                  placeholder="Search products across all active stores..."
+                  value={searchQuery}
+                  onChange={e => setSearchQuery(e.target.value)}
+                />
+                {searchQuery && (
+                  <button
+                    onClick={() => setSearchQuery('')}
+                    className="absolute inset-y-0 right-0 pr-3 flex items-center text-zinc-500 hover:text-white"
+                  >
+                    <X size={16} />
+                  </button>
+                )}
               </div>
+
+              {searchQuery ? (
+                /* Search Results View */
+                <div>
+                  <div className="flex justify-between items-center mb-5">
+                    <div>
+                      <h2 className="text-xl font-bold">Search Results</h2>
+                      <p className="text-sm mt-0.5" style={{ color: '#8A8A8A' }}>
+                        Products matching "{searchQuery}" from active stores nearby
+                      </p>
+                    </div>
+                    <span className="text-xs font-bold px-3 py-1 rounded-full bg-yellow-500/10 text-yellow-500 border border-yellow-500/20">
+                      {searchResults.length} Found
+                    </span>
+                  </div>
+
+                  {searching ? (
+                    <div className="flex flex-col items-center justify-center py-16 gap-3">
+                      <Loader2 className="animate-spin text-yellow-500" size={32} />
+                      <p className="text-xs text-zinc-500">Searching products...</p>
+                    </div>
+                  ) : searchResults.length === 0 ? (
+                    <div className="rounded-xl p-12 text-center flex flex-col items-center gap-4" style={{ background: '#1A1A1A', border: '1px solid #2E2E2E' }}>
+                      <div className="w-16 h-16 rounded-full flex items-center justify-center bg-zinc-900 border border-zinc-800">
+                        <PackageSearch size={32} className="text-zinc-600" />
+                      </div>
+                      <div>
+                        <p className="font-bold text-lg mb-1" style={{ color: '#F5F5F5' }}>No products found</p>
+                        <p className="text-sm leading-relaxed" style={{ color: '#8A8A8A' }}>
+                          Try searching for another product name or category.
+                        </p>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      {searchResults.map(product => {
+                        const seller = sellers.find(s => s.id === product.seller_id);
+                        return (
+                          <div 
+                            key={product.id} 
+                            className="rounded-xl overflow-hidden flex flex-col hover:border-[#3E3E3E] transition-all duration-200" 
+                            style={{ background: '#1A1A1A', border: '1px solid #2E2E2E' }}
+                          >
+                            {/* Product Image */}
+                            <div className="relative w-full overflow-hidden" style={{ height: '160px', background: '#111' }}>
+                              {product.image_url ? (
+                                <img
+                                  src={product.image_url}
+                                  alt={product.name}
+                                  className="w-full h-full object-cover"
+                                />
+                              ) : (
+                                <div className="w-full h-full flex flex-col items-center justify-center gap-2 text-zinc-700">
+                                  <svg xmlns="http://www.w3.org/2050/svg" width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+                                  <span className="text-[10px] font-semibold text-zinc-600">No Photo</span>
+                                </div>
+                              )}
+                              {product.is_ready_for_30min && (
+                                <span className="absolute top-2 left-2 text-[9px] px-1.5 py-0.5 rounded font-black bg-yellow-500 text-black">⚡ 30MIN</span>
+                              )}
+                            </div>
+
+                            {/* Info */}
+                            <div className="p-4 flex flex-col flex-1 gap-2">
+                              <div className="flex justify-between items-start gap-2">
+                                <h3 className="font-bold text-sm leading-snug">{product.name}</h3>
+                                <span className="font-extrabold text-sm text-yellow-500">{formatINR(product.price)}</span>
+                              </div>
+                              <p className="text-xs line-clamp-2 leading-relaxed text-zinc-400 flex-1">{product.description || 'No description available.'}</p>
+                              
+                              <div className="border-t border-zinc-800/80 pt-3 mt-1 flex flex-col gap-2.5">
+                                <div className="flex items-center justify-between">
+                                  <span className="text-[10px] text-zinc-500 uppercase font-bold tracking-wider">Available at</span>
+                                  <span className="text-xs font-semibold text-zinc-300 truncate max-w-[150px]">🏪 {product.sellers?.store_name}</span>
+                                </div>
+                                
+                                <button 
+                                  onClick={() => {
+                                    if (seller) {
+                                      fetchSellerProducts(seller);
+                                      setSearchQuery('');
+                                    }
+                                  }}
+                                  className="btn-primary text-xs w-full py-2 flex items-center justify-center gap-1 font-bold"
+                                >
+                                  Go to Store Inventory <ChevronRight size={13} />
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              ) : (
+                /* Regular storefront discovery list */
+                <div>
+                  <div className="flex justify-between items-center mb-5">
+                    <div>
+                      <h2 className="text-xl font-bold">Active Stores Near You</h2>
+                      <p className="text-sm mt-0.5" style={{ color: '#8A8A8A' }}>Within {OPERATIONAL_GEOFENCE_KM} km SLA delivery radius in {TOWN_NAME}</p>
+                    </div>
+                    <span className="text-xs font-bold px-3 py-1 rounded-full" style={{ background: 'rgba(247,209,8,0.1)', color: '#F7D108' }}>
+                      {activeSellersInSla.length} Online
+                    </span>
+                  </div>
 
               {loading ? (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
@@ -1647,6 +1800,8 @@ export default function CustomerDashboard() {
                   </div>
                 </div>
               )}
+            </div>
+          )}
             </div>
           )}
         </div>
