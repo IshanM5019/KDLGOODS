@@ -70,6 +70,8 @@ export default function CustomerDashboard() {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<any[]>([]);
   const [searching, setSearching] = useState(false);
+  const [cancelingOrderId, setCancelingOrderId] = useState<string | null>(null);
+  const [storeSearchQuery, setStoreSearchQuery] = useState('');
   const [showLocationWarning, setShowLocationWarning] = useState(false);
 
   // Cart
@@ -781,24 +783,8 @@ export default function CustomerDashboard() {
     }
   };
 
-  const handleCancelOrder = async (orderId: string) => {
-    if (!confirm('Are you sure you want to cancel this order?')) return;
-    try {
-      const { error } = await supabase
-        .from('orders')
-        .update({ status: 'cancelled' })
-        .eq('id', orderId);
-      
-      if (error) throw error;
-      
-      setActiveOrderTrackingId(null);
-      setActiveOrder(null);
-      localStorage.removeItem('kdlgoods_customer_active_tracking_id');
-      alert('Order cancelled successfully.');
-      fetchOrderHistory();
-    } catch (err: any) {
-      alert('Failed to cancel order: ' + err.message);
-    }
+  const handleCancelOrder = (orderId: string) => {
+    setCancelingOrderId(orderId);
   };
 
   const handleProfileSave = async (e: React.FormEvent) => {
@@ -1090,7 +1076,7 @@ export default function CustomerDashboard() {
                   </p>
                 </div>
                 <div className="flex gap-2">
-                  {activeOrder.status === 'placed' && (
+                  {['placed', 'accepted', 'preparing'].includes(activeOrder.status) && (
                     <button
                       onClick={() => handleCancelOrder(activeOrder.id)}
                       className="px-3.5 py-2 rounded-lg font-bold text-xs bg-red-600 hover:bg-red-700 text-white transition flex items-center gap-1.5 shadow-lg shadow-red-900/20"
@@ -1508,7 +1494,7 @@ export default function CustomerDashboard() {
             <div className="rounded-xl p-5" style={{ background: '#1A1A1A', border: '1px solid #2E2E2E' }}>
               <div className="flex justify-between items-center border-b pb-4 mb-5" style={{ borderColor: '#2E2E2E' }}>
                 <div>
-                  <button onClick={() => setSelectedSeller(null)} className="text-sm font-semibold mb-1 flex items-center" style={{ color: '#F7D108' }}>
+                  <button onClick={() => { setSelectedSeller(null); setStoreSearchQuery(''); }} className="text-sm font-semibold mb-1 flex items-center" style={{ color: '#F7D108' }}>
                     ← Back to stores
                   </button>
                   <h2 className="text-xl font-bold">{selectedSeller.store_name} Menu</h2>
@@ -1523,16 +1509,54 @@ export default function CustomerDashboard() {
                 <div className="flex justify-center items-center py-16">
                   <Loader2 className="animate-spin" size={32} style={{ color: '#F7D108' }} />
                 </div>
-              ) : sellerProducts.length === 0 ? (
-                /* Empty catalog state */
-                <div className="flex flex-col items-center justify-center py-16 text-center gap-3">
-                  <PackageSearch size={48} style={{ color: '#2E2E2E' }} />
-                  <p className="font-bold text-lg" style={{ color: '#8A8A8A' }}>No Items in Catalog Yet</p>
-                  <p className="text-sm" style={{ color: '#444' }}>This store is adding items to our catalog. Check back soon!</p>
-                </div>
               ) : (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  {sellerProducts.map(product => {
+                <>
+                  {/* Store-Specific Search Bar */}
+                  {sellerProducts.length > 0 && (
+                    <div className="relative mb-5">
+                      <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                        <Search size={16} className="text-zinc-500" />
+                      </div>
+                      <input
+                        type="text"
+                        className="w-full pl-9 pr-9 py-2.5 bg-zinc-900 border border-zinc-800 focus:border-yellow-500 rounded-xl text-xs text-slate-100 outline-none transition duration-200"
+                        placeholder={`Search items in ${selectedSeller.store_name}...`}
+                        value={storeSearchQuery}
+                        onChange={e => setStoreSearchQuery(e.target.value)}
+                      />
+                      {storeSearchQuery && (
+                        <button
+                          onClick={() => setStoreSearchQuery('')}
+                          className="absolute inset-y-0 right-0 pr-3 flex items-center text-zinc-500 hover:text-white"
+                        >
+                          <X size={14} />
+                        </button>
+                      )}
+                    </div>
+                  )}
+
+                  {sellerProducts.length === 0 ? (
+                    /* Empty catalog state */
+                    <div className="flex flex-col items-center justify-center py-16 text-center gap-3">
+                      <PackageSearch size={48} style={{ color: '#2E2E2E' }} />
+                      <p className="font-bold text-lg" style={{ color: '#8A8A8A' }}>No Items in Catalog Yet</p>
+                      <p className="text-sm" style={{ color: '#444' }}>This store is adding items to our catalog. Check back soon!</p>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      {(() => {
+                        const filtered = sellerProducts.filter(p => 
+                          p.name.toLowerCase().includes(storeSearchQuery.toLowerCase()) ||
+                          (p.description && p.description.toLowerCase().includes(storeSearchQuery.toLowerCase()))
+                        );
+                        if (filtered.length === 0) {
+                          return (
+                            <div className="col-span-full py-12 text-center text-zinc-500 text-xs">
+                              No items match "{storeSearchQuery}" in this store.
+                            </div>
+                          );
+                        }
+                        return filtered.map(product => {
                     const cartQty = cart.find(item => item.id === product.id)?.quantity || 0;
                     return (
                       <div key={product.id} className="rounded-xl overflow-hidden flex flex-col hover:border-[#3E3E3E] transition-all duration-200" style={{ background: '#222222', border: '1px solid #2E2E2E' }}>
@@ -1590,9 +1614,12 @@ export default function CustomerDashboard() {
                           </div>
                         </div>
                       </div>
-                    );
-                  })}
-                </div>
+                          );
+                        });
+                      })()}
+                    </div>
+                  )}
+                </>
               )}
             </div>
           ) : (
@@ -2358,6 +2385,17 @@ export default function CustomerDashboard() {
                         </div>
                         <strong className="text-white font-extrabold">{formatINR(order.total_amount)}</strong>
                       </div>
+
+                      {['placed', 'accepted', 'preparing'].includes(order.status) && (
+                        <div className="flex justify-end border-t border-zinc-850/50 pt-2 mt-1">
+                          <button
+                            onClick={() => handleCancelOrder(order.id)}
+                            className="px-2.5 py-1.5 rounded-lg bg-red-600 hover:bg-red-700 text-white font-bold text-[10px] transition"
+                          >
+                            Cancel Order
+                          </button>
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -2370,6 +2408,57 @@ export default function CustomerDashboard() {
                 className="w-full py-2.5 rounded-xl bg-zinc-850 hover:bg-zinc-800 text-zinc-300 font-bold text-xs transition border border-zinc-800"
               >
                 Close Drawer
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Custom Cancel Order Confirmation Modal */}
+      {cancelingOrderId && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[9999] flex items-center justify-center p-4">
+          <div className="w-full max-w-sm rounded-2xl p-5 relative border border-zinc-800 bg-[#1A1A1A] text-center space-y-4">
+            <div className="w-12 h-12 rounded-full bg-red-500/10 text-red-500 flex items-center justify-center mx-auto">
+              <AlertTriangle size={24} />
+            </div>
+            <div>
+              <h3 className="text-base font-bold text-white">Cancel Order?</h3>
+              <p className="text-xs text-zinc-400 mt-1">
+                Are you sure you want to cancel order #{cancelingOrderId.slice(0, 8).toUpperCase()}? This action cannot be undone.
+              </p>
+            </div>
+            <div className="grid grid-cols-2 gap-3 pt-2">
+              <button
+                onClick={() => setCancelingOrderId(null)}
+                className="py-2.5 rounded-xl border border-zinc-850 text-zinc-400 text-xs font-bold transition hover:bg-zinc-900"
+              >
+                No, Keep Order
+              </button>
+              <button
+                onClick={async () => {
+                  const orderId = cancelingOrderId;
+                  setCancelingOrderId(null);
+                  try {
+                    const { error } = await supabase
+                      .from('orders')
+                      .update({ status: 'cancelled' })
+                      .eq('id', orderId);
+                    
+                    if (error) throw error;
+                    
+                    if (orderId === activeOrderTrackingId) {
+                      setActiveOrderTrackingId(null);
+                      setActiveOrder(null);
+                      localStorage.removeItem('kdlgoods_customer_active_tracking_id');
+                    }
+                    alert('Order cancelled successfully.');
+                    fetchOrderHistory();
+                  } catch (err: any) {
+                    alert('Failed to cancel order: ' + err.message);
+                  }
+                }}
+                className="py-2.5 rounded-xl bg-red-600 text-white text-xs font-bold transition hover:bg-red-750"
+              >
+                Yes, Cancel Order
               </button>
             </div>
           </div>
