@@ -178,79 +178,93 @@ export default function CustomerDashboard() {
   }, [activeOrderTrackingId]);
 
   useEffect(() => {
-    const fetchUser = async () => {
-      try {
-        const { data: { session } } = await supabase.auth.getSession();
-        let user = session?.user;
-        if (!user) {
-          // Give client-side storage session restoring a moment to complete
-          await new Promise(resolve => setTimeout(resolve, 600));
-          const { data: { user: retryUser } } = await supabase.auth.getUser();
-          user = retryUser || undefined;
-        }
+    let active = true;
 
-        if (!user) {
-          router.push('/auth/signin');
-          return;
-        }
+    // Listen for auth state changes (this triggers INITIAL_SESSION immediately on client mount)
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (!active) return;
 
-        let { data: profile, error: profileErr } = await supabase
-          .from('profiles')
-          .select('role, phone_number, full_name, avatar_url, address')
-          .eq('id', user.id)
-          .single();
-
-        if (profileErr || !profile) {
-          // If the profile is missing in the database, insert it on the fly
-          const { data: newProfile, error: insertErr } = await supabase
+      if (session?.user) {
+        // User is logged in! Fetch profile and details.
+        const user = session.user;
+        
+        try {
+          let { data: profile, error: profileErr } = await supabase
             .from('profiles')
-            .insert({
-              id: user.id,
-              role: 'customer',
-              full_name: user.user_metadata?.full_name || user.user_metadata?.name || 'User',
-              phone_number: user.phone || null,
-            })
-            .select()
+            .select('role, phone_number, full_name, avatar_url, address')
+            .eq('id', user.id)
             .single();
-          if (!insertErr && newProfile) {
-            profile = newProfile;
-          }
-        }
 
-        const userRole = profile?.role || user.user_metadata?.role || 'customer';
-        setUserPhone(profile?.phone_number || null);
-        setProfileName(profile?.full_name || '');
-        setProfileAvatarUrl(profile?.avatar_url || '');
-        setProfileAddress(profile?.address || '');
-        if (userRole !== 'customer') {
-          if (userRole === 'seller') {
-            router.push('/seller/dashboard');
-          } else if (userRole === 'delivery') {
-            router.push('/delivery/dashboard');
-          }
-          return;
-        }
+          if (!active) return;
 
-        setCustomerId(user.id);
-        // Auto-detect existing active database orders for the customer
-        const { data, error } = await supabase
-          .from('orders')
-          .select('id')
-          .eq('customer_id', user.id)
-          .not('status', 'in', '("delivered","cancelled")')
-          .order('created_at', { ascending: false })
-          .limit(1)
-          .maybeSingle();
-        if (data) {
-          setActiveOrderTrackingId(data.id);
-          localStorage.setItem('kdlgoods_customer_active_tracking_id', data.id);
+          if (profileErr || !profile) {
+            // Auto-create profile if missing
+            const { data: newProfile, error: insertErr } = await supabase
+              .from('profiles')
+              .insert({
+                id: user.id,
+                role: 'customer',
+                full_name: user.user_metadata?.full_name || user.user_metadata?.name || 'User',
+                phone_number: user.phone || null,
+              })
+              .select()
+              .single();
+            if (!insertErr && newProfile) {
+              profile = newProfile;
+            }
+          }
+
+          if (!active) return;
+
+          const userRole = profile?.role || user.user_metadata?.role || 'customer';
+          setUserPhone(profile?.phone_number || null);
+          setProfileName(profile?.full_name || '');
+          setProfileAvatarUrl(profile?.avatar_url || '');
+          setProfileAddress(profile?.address || '');
+
+          if (userRole !== 'customer') {
+            if (userRole === 'seller') {
+              router.push('/seller/dashboard');
+            } else if (userRole === 'delivery') {
+              router.push('/delivery/dashboard');
+            }
+            return;
+          }
+
+          setCustomerId(user.id);
+
+          // Auto-detect existing active database orders
+          const { data: activeOrderData } = await supabase
+            .from('orders')
+            .select('id')
+            .eq('customer_id', user.id)
+            .not('status', 'in', '("delivered","cancelled")')
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+
+          if (activeOrderData && active) {
+            setActiveOrderTrackingId(activeOrderData.id);
+            localStorage.setItem('kdlgoods_customer_active_tracking_id', activeOrderData.id);
+          }
+
+        } catch (err) {
+          console.error('Error fetching user profile:', err);
+        } finally {
+          if (active) setLoading(false);
         }
-      } catch (err) {
-        console.error('Failed to fetch user:', err);
+      } else {
+        // No session found (INITIAL_SESSION with null or SIGNED_OUT)
+        router.push('/auth/signin');
       }
-    };
-    fetchUser();
+    });
+
     detectLocation();
+
+    return () => {
+      active = false;
+      subscription.unsubscribe();
+    };
   }, []);
 
   // Poll LocalStorage offline fallback active order check

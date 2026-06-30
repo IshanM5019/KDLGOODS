@@ -313,15 +313,19 @@ export default function DeliveryDashboard() {
       }
     }
 
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'SIGNED_OUT') {
+        router.push('/auth/signin');
+      }
+    });
+
     const fetchUser = async () => {
       try {
         const { data: { session } } = await supabase.auth.getSession();
         let user = session?.user;
         if (!user) {
-          // Give client-side storage session restoring a moment to complete
-          await new Promise(resolve => setTimeout(resolve, 600));
-          const { data: { user: retryUser } } = await supabase.auth.getUser();
-          user = retryUser || undefined;
+          const { data: { user: apiUser } } = await supabase.auth.getUser();
+          user = apiUser || undefined;
         }
 
         if (!user) {
@@ -418,6 +422,10 @@ export default function DeliveryDashboard() {
       }
     };
     fetchUser();
+
+    return () => {
+      subscription.unsubscribe();
+    };
   }, []);
 
   // Real-time Chat Sync & Storage Sync for Offline mode
