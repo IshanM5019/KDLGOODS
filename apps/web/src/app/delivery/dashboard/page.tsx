@@ -63,19 +63,7 @@ function triggerBrowserNotification(title: string, body: string) {
   }
 }
 
-// Preset GPS Simulation Steps (Store -> Customer)
-const ROUTE_STEPS = [
-  { latitude: 18.8475, longitude: 81.7035, instruction: "Head north toward Merchant store", dist: "1.2 km" },
-  { latitude: 18.8480, longitude: 81.7040, instruction: "Turn right onto Store Lane", dist: "850 m" },
-  { latitude: 18.8490, longitude: 81.7050, instruction: "Arriving at Merchant Store on left", dist: "300 m" },
-  { latitude: 18.8492, longitude: 81.7055, instruction: "Arrived at Merchant! Awaiting pick up.", dist: "0 m" }, // Step 3
-  { latitude: 18.8492, longitude: 81.7055, instruction: "Depart Merchant. Head toward Customer location.", dist: "2.4 km" },
-  { latitude: 18.8482, longitude: 81.7065, instruction: "Make a U-turn at Main Junction", dist: "1.8 km" },
-  { latitude: 18.8465, longitude: 81.7075, instruction: "Continue straight on Town Highway", dist: "1.2 km" },
-  { latitude: 18.8450, longitude: 81.7085, instruction: "Turn left at Clock Tower", dist: "600 m" },
-  { latitude: 18.8440, longitude: 81.7090, instruction: "Arriving at customer address", dist: "150 m" },
-  { latitude: 18.8435, longitude: 81.7095, instruction: "Arrived! Deliver the parcel to customer.", dist: "0 m" } // Step 9
-];
+
 
 interface ChatMessage {
   id: string;
@@ -134,19 +122,10 @@ export default function DeliveryDashboard() {
   });
   const [showAlert, setShowAlert] = useState(false);
  
-  // GPS Simulation State
-  const [simStep, setSimStep] = useState(() => {
-    if (typeof window !== 'undefined') {
-      return parseInt(localStorage.getItem('kdlgoods_driver_sim_step') || '0', 10);
-    }
-    return 0;
-  });
   const [coords, setCoords] = useState(() => {
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem('kdlgoods_driver_coords');
       if (saved) return JSON.parse(saved);
-      const step = parseInt(localStorage.getItem('kdlgoods_driver_sim_step') || '0', 10);
-      return ROUTE_STEPS[step] || DANTEWADA_CENTER;
     }
     return DANTEWADA_CENTER;
   });
@@ -156,12 +135,52 @@ export default function DeliveryDashboard() {
   }, [isOnline]);
 
   useEffect(() => {
-    localStorage.setItem('kdlgoods_driver_sim_step', String(simStep));
-  }, [simStep]);
-
-  useEffect(() => {
     localStorage.setItem('kdlgoods_driver_coords', JSON.stringify(coords));
   }, [coords]);
+
+  // Real Geolocation Tracking
+  useEffect(() => {
+    if (!isOnline) return;
+
+    if (typeof window !== 'undefined' && 'geolocation' in navigator) {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          const { latitude, longitude } = position.coords;
+          setCoords({ latitude, longitude });
+        },
+        (error) => {
+          console.warn('Initial geolocation error:', error);
+        },
+        { enableHighAccuracy: true }
+      );
+
+      const watchId = navigator.geolocation.watchPosition(
+        (position) => {
+          const { latitude, longitude } = position.coords;
+          setCoords({ latitude, longitude });
+        },
+        (error) => {
+          console.warn('Geolocation watch error:', error);
+        },
+        {
+          enableHighAccuracy: true,
+          maximumAge: 10000,
+          timeout: 5000,
+        }
+      );
+
+      return () => {
+        navigator.geolocation.clearWatch(watchId);
+      };
+    }
+  }, [isOnline]);
+
+  // Auto upload coordinates to database
+  useEffect(() => {
+    if (isOnline && coords && driverId && driverId !== 'driver-uuid-placeholder-123') {
+      updateDriverLocation();
+    }
+  }, [coords, isOnline, driverId]);
 
   useEffect(() => {
     if (activeOrder) {
@@ -551,8 +570,6 @@ export default function DeliveryDashboard() {
               setActiveOrder(updatedOrder);
               localStorage.setItem('kdlgoods_driver_active_order', JSON.stringify(updatedOrder));
               setShowAlert(true);
-              setSimStep(0);
-              setCoords(ROUTE_STEPS[0]);
               
               playNotificationSound();
               triggerBrowserNotification(
@@ -605,8 +622,6 @@ export default function DeliveryDashboard() {
             const matchedOrder = local[pendingIndex];
             setActiveOrder(matchedOrder);
             setShowAlert(true);
-            setSimStep(0);
-            setCoords(ROUTE_STEPS[0]);
             
             // Trigger alerts
             playNotificationSound();
@@ -767,10 +782,6 @@ export default function DeliveryDashboard() {
       });
 
     setActiveOrder(prev => prev ? { ...prev, status: 'driver_accepted' } : null);
-    
-    // Set route simulator to store heading step
-    setSimStep(1);
-    setCoords(ROUTE_STEPS[1]);
   };
 
   const handleMarkPickedUp = async () => {
@@ -805,10 +816,6 @@ export default function DeliveryDashboard() {
       });
 
     setActiveOrder(prev => prev ? { ...prev, status: 'picked_up' } : null);
-    
-    // Set simulator to store arrival step
-    setSimStep(3);
-    setCoords(ROUTE_STEPS[3]);
   };
 
   const handleStartDelivery = async () => {
@@ -843,10 +850,6 @@ export default function DeliveryDashboard() {
       });
 
     setActiveOrder(prev => prev ? { ...prev, status: 'out_for_delivery' } : null);
-    
-    // Set simulator to departing store step
-    setSimStep(4);
-    setCoords(ROUTE_STEPS[4]);
   };
 
   const handleRejectRequest = () => {
@@ -915,7 +918,6 @@ export default function DeliveryDashboard() {
     if (activeOrder.payment_method !== 'cod') {
       setTimeout(() => {
         setActiveOrder(null);
-        setSimStep(0);
       }, 2000);
     }
   };
@@ -1052,7 +1054,6 @@ export default function DeliveryDashboard() {
 
       setTimeout(() => {
         setActiveOrder(null);
-        setSimStep(0);
       }, 1500);
     } catch (err) {
       // Offline mock updates
@@ -1079,7 +1080,6 @@ export default function DeliveryDashboard() {
 
       setTimeout(() => {
         setActiveOrder(null);
-        setSimStep(0);
       }, 1500);
     } finally {
       setCashSubmitting(false);
@@ -1088,27 +1088,7 @@ export default function DeliveryDashboard() {
     }
   };
 
-  const simulateMovement = () => {
-    let nextStep = simStep + 1;
-    if (nextStep >= ROUTE_STEPS.length) {
-      nextStep = ROUTE_STEPS.length - 1;
-    }
-    setSimStep(nextStep);
-    const newCoords = ROUTE_STEPS[nextStep];
-    setCoords({ latitude: newCoords.latitude, longitude: newCoords.longitude });
-    updateDriverLocation();
 
-    // Auto-update order status if driver simulates arriving at merchant/customer
-    if (activeOrder) {
-      if (nextStep === 3 && activeOrder.status === 'accepted') {
-        // Driver reached Merchant - simulate preparing / ready
-        setActiveOrder(prev => prev ? { ...prev, status: 'awaiting_pickup' } : null);
-      } else if (nextStep === 9 && activeOrder.status === 'out_for_delivery') {
-        // Driver reached Customer
-        triggerBrowserNotification('📍 Arrival Notification', 'You have arrived at the customer location.');
-      }
-    }
-  };
 
   // Slider Drag Handlers
   const handleDragStart = (e: React.MouseEvent | React.TouchEvent) => {
@@ -1500,7 +1480,7 @@ export default function DeliveryDashboard() {
                     {/* Route line */}
                     <path d="M 30 65 L 50 35 L 75 60" fill="none" stroke="#444" strokeWidth="1.5" strokeDasharray="2,2" />
                     <path 
-                      d={simStep < 4 ? "M 30 65 L 50 35" : "M 50 35 L 75 60"} 
+                      d={['driver_accepted', 'preparing', 'awaiting_pickup'].includes(activeOrder.status) ? "M 30 65 L 50 35" : "M 50 35 L 75 60"} 
                       fill="none" 
                       stroke="#F7D108" 
                       strokeWidth="2" 
@@ -1515,20 +1495,18 @@ export default function DeliveryDashboard() {
                     <circle cx="75" cy="60" r="3.5" fill="#3B82F6" />
                     <text x="75" y="69" fill="#3B82F6" fontSize="5" fontWeight="bold" textAnchor="middle">CUSTOMER</text>
 
-                    {/* Rider marker (Updates relative to simStep) */}
+                    {/* Rider marker (Updates relative to activeOrder.status) */}
                     {(() => {
-                      // Interpolate coordinates for SVG rendering
                       let rx = 30, ry = 65;
-                      if (simStep <= 3) {
-                        // Rider heading to merchant
-                        const pct = simStep / 3;
-                        rx = 30 + (50 - 30) * pct;
-                        ry = 65 + (35 - 65) * pct;
-                      } else {
-                        // Rider heading to customer
-                        const pct = (simStep - 4) / 5;
-                        rx = 50 + (75 - 50) * pct;
-                        ry = 35 + (60 - 35) * pct;
+                      if (activeOrder.status === 'driver_accepted') {
+                        rx = 40;
+                        ry = 50;
+                      } else if (['picked_up', 'out_for_delivery'].includes(activeOrder.status)) {
+                        rx = 62.5;
+                        ry = 47.5;
+                      } else if (activeOrder.status === 'delivered') {
+                        rx = 75;
+                        ry = 60;
                       }
                       return (
                         <g>
@@ -1548,21 +1526,20 @@ export default function DeliveryDashboard() {
                 {/* GPS HUD Nav Directions Panel */}
                 <div className="p-4 rounded-2xl flex items-center justify-between" style={{ background: '#1A1A1A', border: '1px solid #2E2E2E' }}>
                   <div className="flex items-center gap-3">
-                    <div className="w-9 h-9 rounded-lg flex items-center justify-center bg-yellow-500/10 text-yellow-500 border border-yellow-500/20">
+                    <div className="w-9 h-9 rounded-lg flex items-center justify-center bg-green-500/10 text-green-500 border border-green-500/20">
                       <Navigation size={18} className="rotate-45" />
                     </div>
                     <div>
-                      <h4 className="text-xs font-bold text-yellow-500">{ROUTE_STEPS[simStep].instruction}</h4>
-                      <p className="text-[10px] mt-0.5" style={{ color: '#8A8A8A' }}>Remaining distance: {ROUTE_STEPS[simStep].dist}</p>
+                      <h4 className="text-xs font-bold text-green-500">Live GPS Tracking Active</h4>
+                      <p className="text-[10px] mt-0.5" style={{ color: '#8A8A8A' }}>
+                        Your coordinates are being shared in real time.
+                      </p>
                     </div>
                   </div>
-                  <button 
-                    onClick={simulateMovement}
-                    className="p-2.5 rounded-xl border border-zinc-800 bg-[#222] text-[#F7D108] hover:bg-zinc-800 transition flex items-center gap-1 text-[11px] font-bold"
-                  >
-                    <RefreshCw size={12} />
-                    SIM GPS
-                  </button>
+                  <div className="px-2.5 py-1 rounded bg-green-500/10 text-green-400 text-[10px] font-bold border border-green-500/20 flex items-center gap-1.5 animate-pulse">
+                    <span className="w-1.5 h-1.5 rounded-full bg-green-500"></span>
+                    LIVE
+                  </div>
                 </div>
 
                 {/* Progress Details card */}
@@ -1725,7 +1702,7 @@ export default function DeliveryDashboard() {
                     ) : (
                       <div className="p-3 rounded-xl flex items-center justify-center gap-2 text-xs font-bold border border-yellow-500/20 bg-yellow-500/5 text-yellow-500">
                         <Loader2 className="animate-spin" size={14} /> 
-                        {simStep < 3 
+                        {activeOrder.status === 'accepted' 
                           ? 'Awaiting pickup. Head to Merchant location.' 
                           : 'Arrived at Merchant store. Collect items.'}
                       </div>
