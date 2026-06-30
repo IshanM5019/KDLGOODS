@@ -383,14 +383,21 @@ export default function CustomerDashboard() {
       try {
         const { data, error } = await supabase
           .from('delivery_partners')
-          .select('location')
+          .select('location, latitude, longitude')
           .eq('id', activeOrder.delivery_partner_id)
           .single();
-        if (!error && data?.location?.coordinates) {
-          setDriverCoords({
-            longitude: data.location.coordinates[0],
-            latitude: data.location.coordinates[1]
-          });
+        if (!error && data) {
+          if (data.latitude !== null && data.longitude !== null && data.latitude !== undefined && data.longitude !== undefined) {
+            setDriverCoords({
+              latitude: data.latitude,
+              longitude: data.longitude
+            });
+          } else if (data.location?.coordinates) {
+            setDriverCoords({
+              longitude: data.location.coordinates[0],
+              latitude: data.location.coordinates[1]
+            });
+          }
         }
       } catch (err) {
         console.error(err);
@@ -407,7 +414,12 @@ export default function CustomerDashboard() {
         table: 'delivery_partners',
         filter: `id=eq.${activeOrder.delivery_partner_id}`
       }, (payload: any) => {
-        if (payload.new?.location?.coordinates) {
+        if (payload.new?.latitude !== null && payload.new?.longitude !== null && payload.new?.latitude !== undefined && payload.new?.longitude !== undefined) {
+          setDriverCoords({
+            latitude: payload.new.latitude,
+            longitude: payload.new.longitude
+          });
+        } else if (payload.new?.location?.coordinates) {
           setDriverCoords({
             longitude: payload.new.location.coordinates[0],
             latitude: payload.new.location.coordinates[1]

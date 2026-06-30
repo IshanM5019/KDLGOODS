@@ -639,6 +639,8 @@ export default function DeliveryDashboard() {
           id: driverId,
           is_online: isOnline,
           location: `POINT(${coords.longitude} ${coords.latitude})`,
+          latitude: coords.latitude,
+          longitude: coords.longitude,
         });
     } catch (err) {
       console.warn('Failed to upsert delivery partner to DB:', err);
