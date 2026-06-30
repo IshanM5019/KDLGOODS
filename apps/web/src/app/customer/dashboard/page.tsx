@@ -2407,6 +2407,28 @@ export default function CustomerDashboard() {
                   Update Security Credentials
                 </button>
               </form>
+
+              <div className="border-t border-zinc-850 my-6" />
+
+              {/* Logout Button */}
+              <button
+                type="button"
+                onClick={async () => {
+                  if (confirm('Are you sure you want to log out?')) {
+                    try {
+                      const { error } = await supabase.auth.signOut();
+                      if (error) throw error;
+                      router.push('/auth/signin');
+                    } catch (err: any) {
+                      alert(err.message || 'Failed to log out. Please try again.');
+                    }
+                  }
+                }}
+                className="w-full py-2.5 text-xs font-bold rounded-lg transition flex items-center justify-center gap-2 border"
+                style={{ backgroundColor: 'rgba(239, 68, 68, 0.15)', color: '#f87171', borderColor: 'rgba(239, 68, 68, 0.3)' }}
+              >
+                Log Out Account
+              </button>
             </div>
             
             <div className="pt-6 mt-6 border-t border-zinc-850 text-center">

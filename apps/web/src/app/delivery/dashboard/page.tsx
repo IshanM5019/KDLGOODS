@@ -2198,6 +2198,32 @@ export default function DeliveryDashboard() {
                 </button>
               </form>
             </div>
+
+            {/* Logout Button */}
+            <div className="p-5 rounded-2xl space-y-4 border border-zinc-800 bg-[#1A1A1A]">
+              <h3 className="text-sm font-extrabold text-red-400 uppercase tracking-wider">Session Management</h3>
+              <p className="text-[10px] text-zinc-500 leading-normal">
+                Log out of this delivery partner console. You will need your credentials to sign back in.
+              </p>
+              <button
+                type="button"
+                onClick={async () => {
+                  if (confirm('Are you sure you want to log out?')) {
+                    try {
+                      const { error } = await supabase.auth.signOut();
+                      if (error) throw error;
+                      router.push('/auth/signin');
+                    } catch (err: any) {
+                      alert(err.message || 'Failed to log out. Please try again.');
+                    }
+                  }
+                }}
+                className="w-full py-2.5 text-xs font-bold rounded-lg transition flex items-center justify-center gap-2 border"
+                style={{ backgroundColor: 'rgba(239, 68, 68, 0.15)', color: '#f87171', borderColor: 'rgba(239, 68, 68, 0.3)' }}
+              >
+                Log Out Rider Account
+              </button>
+            </div>
           </div>
         )}
 
