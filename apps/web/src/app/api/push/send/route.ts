@@ -50,11 +50,9 @@ export async function POST(request: Request) {
       }
     });
 
-    // Fetch all active subscriptions for the target user
+    // Fetch all active subscriptions for the target user via RPC to bypass RLS
     const { data: subscriptions, error } = await supabaseAdmin
-      .from('push_subscriptions')
-      .select('*')
-      .eq('user_id', userId);
+      .rpc('get_user_push_subscriptions', { target_user_id: userId });
 
     if (error) {
       console.error('Error fetching subscriptions:', error);
@@ -71,7 +69,7 @@ export async function POST(request: Request) {
       url: url || '/'
     });
 
-    const sendPromises = subscriptions.map(async (sub) => {
+    const sendPromises = (subscriptions as any[]).map(async (sub: any) => {
       const pushSubscription = {
         endpoint: sub.endpoint,
         keys: {
