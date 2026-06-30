@@ -223,7 +223,9 @@ export default function CustomerDashboard() {
           setProfileAddress(profile?.address || '');
 
           if (userRole !== 'customer') {
-            if (userRole === 'seller') {
+            if (userRole === 'admin') {
+              router.push('/admin/dashboard');
+            } else if (userRole === 'seller') {
               router.push('/seller/dashboard');
             } else if (userRole === 'delivery') {
               router.push('/delivery/dashboard');

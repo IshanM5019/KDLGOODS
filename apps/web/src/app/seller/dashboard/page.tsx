@@ -545,7 +545,9 @@ export default function SellerDashboard() {
       setProfileAvatarUrl(profile?.avatar_url || '');
       setProfileAddress(profile?.address || '');
       if (userRole !== 'seller') {
-        if (userRole === 'delivery') {
+        if (userRole === 'admin') {
+          router.push('/admin/dashboard');
+        } else if (userRole === 'delivery') {
           router.push('/delivery/dashboard');
         } else {
           router.push('/customer/dashboard');

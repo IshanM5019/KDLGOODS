@@ -382,7 +382,9 @@ export default function DeliveryDashboard() {
         setProfileAvatarUrl(profile?.avatar_url || '');
         setProfileAddress(profile?.address || '');
         if (userRole !== 'delivery') {
-          if (userRole === 'seller') {
+          if (userRole === 'admin') {
+            router.push('/admin/dashboard');
+          } else if (userRole === 'seller') {
             router.push('/seller/dashboard');
           } else {
             router.push('/customer/dashboard');

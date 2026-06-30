@@ -56,7 +56,9 @@ export default function SigninPage() {
       }
 
       // Redirect depending on user role claim
-      if (role === 'seller') {
+      if (role === 'admin') {
+        router.push('/admin/dashboard');
+      } else if (role === 'seller') {
         router.push('/seller/dashboard');
       } else if (role === 'delivery') {
         router.push('/delivery/dashboard');
