@@ -2028,11 +2028,14 @@ export default function CustomerDashboard() {
                 </button>
                 <button
                   type="button"
-                  disabled
-                  style={{ opacity: 0.4, cursor: 'not-allowed' }}
-                  className="py-3 px-4 rounded-xl border border-zinc-900 bg-zinc-950 text-zinc-500 text-xs font-bold text-center"
+                  onClick={() => setPaymentMethod('upi')}
+                  className={`py-3 px-4 rounded-xl border text-xs font-bold text-center transition ${
+                    paymentMethod === 'upi'
+                      ? 'border-yellow-500 bg-yellow-500/10 text-yellow-500'
+                      : 'border-zinc-800 bg-zinc-900 text-zinc-400 hover:text-zinc-200'
+                  }`}
                 >
-                  📱 Online UPI (Disabled)
+                  📱 Online UPI
                 </button>
               </div>
             </div>
@@ -2082,37 +2085,52 @@ export default function CustomerDashboard() {
               <p className="text-[10px] text-zinc-500 mt-0.5">Submit payment to the central account below</p>
             </div>
 
-            {/* Bank details & QR simulation */}
-            <div className="p-4 rounded-xl border border-zinc-800 bg-zinc-900 text-xs space-y-2.5">
-              <div className="flex justify-between">
-                <span className="text-zinc-500">Beneficiary:</span>
-                <span className="text-zinc-200 font-semibold">KDL Goods Private Ltd.</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-zinc-500">Central UPI ID:</span>
-                <span className="text-yellow-500 font-mono font-bold">kdlgoods@icici</span>
-              </div>
-              <div className="flex justify-between border-t border-zinc-800/50 pt-2">
-                <span className="text-zinc-500">Bank Name:</span>
-                <span className="text-zinc-200 font-semibold">ICICI Bank</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-zinc-500">Account Number:</span>
-                <span className="text-zinc-200 font-mono font-semibold">123405006789</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-zinc-500">IFSC Code:</span>
-                <span className="text-zinc-200 font-mono font-semibold">ICIC0001234</span>
-              </div>
-              <div className="flex justify-between border-t border-zinc-800/50 pt-2 font-bold text-sm">
+            {/* Bank details & QR scan */}
+            <div className="p-4 rounded-xl border border-zinc-800 bg-zinc-900 text-xs space-y-3.5">
+              <div className="flex justify-between font-bold text-sm">
                 <span className="text-zinc-400">Total Payable:</span>
                 <span className="text-[#F7D108]">{formatINR(grandTotal)}</span>
+              </div>
+              
+              <div className="flex flex-col items-center justify-center p-2 rounded-xl bg-white w-40 h-40 mx-auto">
+                <img 
+                  src={`https://api.qrserver.com/v1/create-qr-code/?size=150x150&margin=4&data=${encodeURIComponent(
+                    `upi://pay?pa=kdlgoods@icici&pn=KDL%20Goods%20Private%20Ltd&am=${grandTotal}&cu=INR`
+                  )}`}
+                  alt="Scan to Pay QR Code"
+                  className="w-full h-full object-contain"
+                />
+              </div>
+              
+              <p className="text-[9px] text-zinc-500 text-center leading-normal">
+                Scan QR Code with GPay, PhonePe, Paytm, or BHIM to pay
+              </p>
+
+              <div className="border-t border-zinc-800/60 pt-2.5 space-y-1.5 text-[11px]">
+                <div className="flex justify-between">
+                  <span className="text-zinc-500">UPI ID:</span>
+                  <span className="text-yellow-500 font-mono font-bold">kdlgoods@icici</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-zinc-500">Beneficiary:</span>
+                  <span className="text-zinc-200 font-semibold">KDL Goods Private Ltd.</span>
+                </div>
+              </div>
+
+              {/* Mobile UPI Intent selector */}
+              <div className="pt-1">
+                <a 
+                  href={`upi://pay?pa=kdlgoods@icici&pn=KDL%20Goods%20Private%20Ltd&am=${grandTotal}&cu=INR`}
+                  className="w-full py-2.5 bg-yellow-500 hover:bg-yellow-400 text-black text-[10px] font-black uppercase tracking-wider rounded-xl transition flex items-center justify-center gap-1.5 text-center font-extrabold"
+                >
+                  📱 Pay via UPI App (GPay/PhonePe)
+                </a>
               </div>
             </div>
 
             {/* Instructions */}
             <p className="text-[10px] text-zinc-500 text-center leading-relaxed">
-              Open your favorite UPI app (GPay, PhonePe, Paytm, BHIM) and complete the transfer, then enter the 12-digit transaction ID below.
+              Open your favorite UPI app, scan the QR code or tap the button above, complete the payment, then submit the 12-digit transaction ID below.
             </p>
 
             {/* Input Details */}
