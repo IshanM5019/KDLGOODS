@@ -11,6 +11,7 @@ import {
   TrendingUp, Send, CheckCircle2, User, Landmark, HelpCircle, PhoneCall,
   ChevronDown, MessageCircle, AlertTriangle, History
 } from 'lucide-react';
+import { usePushNotifications } from '@/hooks/usePushNotifications';
 
 // Programmatic chime using Web Audio API
 function playNotificationSound() {
@@ -93,6 +94,12 @@ interface Transaction {
 
 export default function DeliveryDashboard() {
   const router = useRouter();
+  const {
+    isSubscribed: pushSubscribed,
+    subscribeToPush,
+    unsubscribeFromPush,
+    loading: pushLoading
+  } = usePushNotifications();
   const [activeTab, setActiveTab] = useState<'jobs' | 'earnings' | 'support' | 'profile'>('jobs');
   const [isOnline, setIsOnline] = useState(() => {
     if (typeof window !== 'undefined') {
@@ -678,6 +685,44 @@ export default function DeliveryDashboard() {
     window.dispatchEvent(new Event('storage'));
   };
 
+  const sendOrderStatusPush = (status: string, customerId: string) => {
+    if (!customerId) return;
+    let title = '';
+    let body = '';
+    switch(status) {
+      case 'driver_accepted':
+        title = '🛵 Driver Assigned!';
+        body = 'A delivery partner has accepted your order and is heading to the store.';
+        break;
+      case 'picked_up':
+        title = '📦 Order Picked Up!';
+        body = 'Your order has been picked up from the merchant.';
+        break;
+      case 'out_for_delivery':
+        title = '📍 Out for Delivery!';
+        body = 'Your driver is on the way to your location.';
+        break;
+      case 'delivered':
+        title = '✅ Order Delivered!';
+        body = 'Your order has been successfully delivered. Enjoy!';
+        break;
+      default:
+        return;
+    }
+    fetch('/api/push/send', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        userId: customerId,
+        title,
+        body,
+        url: '/customer/dashboard'
+      })
+    }).catch(err => console.error('Failed to send status push notification:', err));
+  };
+
   const handleAcceptRequest = async () => {
     setShowAlert(false);
     if (!activeOrder) return;
@@ -688,6 +733,7 @@ export default function DeliveryDashboard() {
         .update({ status: 'driver_accepted' })
         .eq('id', activeOrder.id);
       if (error) throw error;
+      sendOrderStatusPush('driver_accepted', activeOrder.customer_id);
     } catch (err) {
       // Mock transition in localStorage
       const local = JSON.parse(localStorage.getItem('kdlgoods_orders') || '[]');
@@ -726,6 +772,7 @@ export default function DeliveryDashboard() {
         .update({ status: 'picked_up' })
         .eq('id', activeOrder.id);
       if (error) throw error;
+      sendOrderStatusPush('picked_up', activeOrder.customer_id);
     } catch (err) {
       const local = JSON.parse(localStorage.getItem('kdlgoods_orders') || '[]');
       const updated = local.map((o: any) => {
@@ -763,6 +810,7 @@ export default function DeliveryDashboard() {
         .update({ status: 'out_for_delivery' })
         .eq('id', activeOrder.id);
       if (error) throw error;
+      sendOrderStatusPush('out_for_delivery', activeOrder.customer_id);
     } catch (err) {
       const local = JSON.parse(localStorage.getItem('kdlgoods_orders') || '[]');
       const updated = local.map((o: any) => {
@@ -805,6 +853,7 @@ export default function DeliveryDashboard() {
         .update({ status: 'delivered' })
         .eq('id', activeOrder.id);
       if (error) throw error;
+      sendOrderStatusPush('delivered', activeOrder.customer_id);
     } catch (err) {
       const local = JSON.parse(localStorage.getItem('kdlgoods_orders') || '[]');
       const updated = local.map((o: any) => {
@@ -2044,6 +2093,26 @@ export default function DeliveryDashboard() {
                   checked={notifEmail}
                   onChange={e => setNotifEmail(e.target.checked)}
                   className="w-4 h-4 accent-yellow-500"
+                />
+              </div>
+
+              <div className="flex justify-between items-center p-3 rounded-xl bg-zinc-900 border border-zinc-800">
+                <div>
+                  <span className="block text-xs font-semibold text-white">Background Push Notifications</span>
+                  <span className="text-[9px] text-zinc-500">Receive new delivery assignment alerts even when closed</span>
+                </div>
+                <input
+                  type="checkbox"
+                  disabled={pushLoading || driverId === 'driver-uuid-placeholder-123'}
+                  checked={pushSubscribed}
+                  onChange={async (e) => {
+                    if (e.target.checked) {
+                      await subscribeToPush(driverId);
+                    } else {
+                      await unsubscribeFromPush(driverId);
+                    }
+                  }}
+                  className="w-4 h-4 accent-yellow-500 disabled:opacity-50"
                 />
               </div>
             </div>

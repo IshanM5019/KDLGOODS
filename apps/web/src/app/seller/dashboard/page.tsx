@@ -9,6 +9,7 @@ import {
   Store, ShoppingBag, Loader2, AlertCircle, BarChart2, ShieldAlert,
   ImagePlus, PackageSearch, InboxIcon, Settings, MessageSquare, MessageCircle, History
 } from 'lucide-react';
+import { usePushNotifications } from '@/hooks/usePushNotifications';
 
 // ─── Supabase Storage bucket for product images ───────────────────────────────
 const STORAGE_BUCKET = 'product-images';
@@ -69,6 +70,12 @@ function playNotificationSound() {
 
 export default function SellerDashboard() {
   const router = useRouter();
+  const {
+    isSubscribed: pushSubscribed,
+    subscribeToPush,
+    unsubscribeFromPush,
+    loading: pushLoading
+  } = usePushNotifications();
   const [products, setProducts] = useState<Product[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
   const [activeTab, setActiveTab] = useState<'orders' | 'catalog' | 'history' | 'profile'>('orders');
@@ -787,6 +794,28 @@ export default function SellerDashboard() {
     try {
       const { error } = await supabase.from('orders').update({ status: nextStatus }).eq('id', orderId);
       if (error) throw error;
+
+      // Notify customer via push notification
+      const order = orders.find(o => o.id === orderId);
+      if (order && order.customer_id) {
+        let statusText = nextStatus as string;
+        if (nextStatus === 'accepted') statusText = 'accepted & preparing';
+        else if (nextStatus === 'awaiting_pickup') statusText = 'ready for pick up';
+
+        fetch('/api/push/send', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            userId: order.customer_id,
+            title: `📦 Order Status: ${statusText.toUpperCase()}`,
+            body: `Your order from ${storeName || 'Merchant'} is now ${statusText}.`,
+            url: '/customer/dashboard'
+          })
+        }).catch(err => console.error('Error triggering push notification for customer:', err));
+      }
+
       fetchOrders();
     } catch {
       const local = JSON.parse(localStorage.getItem('kdlgoods_orders') || '[]');
@@ -1068,6 +1097,46 @@ export default function SellerDashboard() {
                     Save Personal Profile
                   </button>
                 </form>
+              </div>
+
+              {/* Preferences Settings */}
+              <div className="rounded-xl p-6 space-y-6" style={{ background: '#1A1A1A', border: '1px solid #2E2E2E' }}>
+                <h3 className="text-lg font-bold text-yellow-500 uppercase tracking-wider">Preferences Settings</h3>
+                
+                <div className="space-y-4">
+                  <div className="flex justify-between items-center p-3 rounded-lg bg-zinc-900 border border-zinc-800">
+                    <div>
+                      <span className="block text-xs font-semibold text-white">Email Notifications</span>
+                      <span className="text-[10px] text-zinc-500">Receive order receipts and merchant notifications</span>
+                    </div>
+                    <input
+                      type="checkbox"
+                      checked={notifEmail}
+                      onChange={e => setNotifEmail(e.target.checked)}
+                      className="w-4 h-4 accent-yellow-500"
+                    />
+                  </div>
+
+                  <div className="flex justify-between items-center p-3 rounded-lg bg-zinc-900 border border-zinc-800">
+                    <div>
+                      <span className="block text-xs font-semibold text-white">Background Push Notifications</span>
+                      <span className="text-[10px] text-zinc-500">Receive new order alerts even if the site is closed</span>
+                    </div>
+                    <input
+                      type="checkbox"
+                      disabled={pushLoading || !sellerId || sellerId === '00000000-0000-0000-0000-000000000000'}
+                      checked={pushSubscribed}
+                      onChange={async (e) => {
+                        if (e.target.checked) {
+                          await subscribeToPush(sellerId);
+                        } else {
+                          await unsubscribeFromPush(sellerId);
+                        }
+                      }}
+                      className="w-4 h-4 accent-yellow-500 disabled:opacity-50"
+                    />
+                  </div>
+                </div>
               </div>
 
               {/* Security Credentials */}

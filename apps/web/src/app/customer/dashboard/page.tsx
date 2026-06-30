@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '../../../lib/supabase';
+import { usePushNotifications } from '@/hooks/usePushNotifications';
 import {
   calculateDistance,
   isWithinSlaRadius,
@@ -30,6 +31,7 @@ interface LocalSeller {
   is_active: boolean;
   distanceKm: number;
   withinSla: boolean;
+  avatar_url: string | null;
 }
 
 interface CartItem {
@@ -42,6 +44,12 @@ interface CartItem {
 
 export default function CustomerDashboard() {
   const router = useRouter();
+  const {
+    isSubscribed: pushSubscribed,
+    subscribeToPush,
+    unsubscribeFromPush,
+    loading: pushLoading
+  } = usePushNotifications();
   const [sellers, setSellers] = useState<LocalSeller[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -503,6 +511,22 @@ export default function CustomerDashboard() {
 
       if (error) throw error;
 
+      // Fetch avatar/display picture for the sellers from profiles table
+      const sellerIds = (data || []).map((s: any) => s.id);
+      const avatars: Record<string, string> = {};
+      if (sellerIds.length > 0) {
+        const { data: profiles, error: profilesErr } = await supabase
+          .from('profiles')
+          .select('id, avatar_url')
+          .in('id', sellerIds);
+        
+        if (!profilesErr && profiles) {
+          profiles.forEach((p: any) => {
+            if (p.avatar_url) avatars[p.id] = p.avatar_url;
+          });
+        }
+      }
+
       const calculated = (data || []).map((s: any) => {
         const withinSla = s.distance_meters <= OPERATIONAL_GEOFENCE_KM * 1000;
         return {
@@ -516,6 +540,7 @@ export default function CustomerDashboard() {
           is_active: true,
           distanceKm: s.distance_meters / 1000,
           withinSla,
+          avatar_url: avatars[s.id] || null,
         };
       });
       setSellers(calculated);
@@ -542,7 +567,8 @@ export default function CustomerDashboard() {
                   geohash: '',
                   is_active: true,
                   distanceKm,
-                  withinSla
+                  withinSla,
+                  avatar_url: parsed.avatar_url || null,
                 }
               ]);
             } else {
@@ -739,6 +765,20 @@ export default function CustomerDashboard() {
           .insert(orderItems);
 
         if (itemsErr) throw itemsErr;
+
+        // Send background push notification to the seller
+        fetch('/api/push/send', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            userId: sellerId,
+            title: '🛍️ New Order Received!',
+            body: `You have received a new order for ${formatINR(sellerGrandTotal)}.`,
+            url: '/seller/dashboard'
+          })
+        }).catch(err => console.error('Error triggering push notification for seller:', err));
       }
 
       if (firstOrderId) {
@@ -1786,11 +1826,23 @@ export default function CustomerDashboard() {
                   {activeSellersInSla.map(seller => (
                     <div key={seller.id} className="rounded-xl p-5 flex flex-col justify-between gap-4 hover:border-[#3E3E3E] transition" style={{ background: '#1A1A1A', border: '1px solid #2E2E2E' }}>
                       <div>
-                        <div className="flex justify-between items-start mb-2">
-                          <h3 className="font-bold text-base">{seller.store_name}</h3>
-                          <span className="text-[10px] px-2 py-0.5 rounded font-extrabold" style={{ background: 'rgba(34,197,94,0.1)', color: '#22C55E' }}>
-                            {seller.distanceKm.toFixed(2)} KM
-                          </span>
+                        <div className="flex gap-3 items-center mb-4 border-b border-zinc-850 pb-3">
+                          <div className="w-12 h-12 rounded-full overflow-hidden bg-zinc-850 flex-shrink-0 border border-zinc-800 flex items-center justify-center">
+                            {seller.avatar_url ? (
+                              <img src={seller.avatar_url} alt={seller.store_name} className="w-full h-full object-cover" />
+                            ) : (
+                              <Store size={20} className="text-zinc-500" />
+                            )}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex justify-between items-start">
+                              <h3 className="font-bold text-base truncate text-white">{seller.store_name}</h3>
+                              <span className="text-[10px] px-2 py-0.5 rounded font-extrabold flex-shrink-0" style={{ background: 'rgba(34,197,94,0.1)', color: '#22C55E' }}>
+                                {seller.distanceKm.toFixed(2)} KM
+                              </span>
+                            </div>
+                            <p className="text-[9px] font-bold text-yellow-500 uppercase tracking-wide mt-0.5">🏪 Operational</p>
+                          </div>
                         </div>
                         <p className="text-xs leading-relaxed mb-3" style={{ color: '#8A8A8A' }}>{seller.description}</p>
                         <div className="text-xs space-y-1 p-2.5 rounded" style={{ background: '#222222', border: '1px solid #2E2E2E' }}>
@@ -1813,15 +1865,29 @@ export default function CustomerDashboard() {
                   <p className="text-xs mb-5" style={{ color: '#444' }}>These stores are locked — beyond the 30-minute delivery radius.</p>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-5 opacity-40">
                     {outOfSlaSellers.map(seller => (
-                      <div key={seller.id} className="rounded-xl p-5 cursor-not-allowed" style={{ background: '#1A1A1A', border: '1px solid #2E2E2E' }}>
-                        <div className="flex justify-between items-start mb-2">
-                          <h3 className="font-bold">{seller.store_name}</h3>
-                          <span className="text-[10px] px-2 py-0.5 rounded font-extrabold" style={{ background: 'rgba(239,68,68,0.1)', color: '#EF4444' }}>
-                            {seller.distanceKm.toFixed(2)} KM (OUT)
-                          </span>
+                      <div key={seller.id} className="rounded-xl p-5 cursor-not-allowed flex flex-col justify-between gap-4" style={{ background: '#1A1A1A', border: '1px solid #2E2E2E' }}>
+                        <div>
+                          <div className="flex gap-3 items-center mb-4 border-b border-zinc-850 pb-3">
+                            <div className="w-12 h-12 rounded-full overflow-hidden bg-zinc-850 flex-shrink-0 border border-zinc-800 flex items-center justify-center opacity-60">
+                              {seller.avatar_url ? (
+                                <img src={seller.avatar_url} alt={seller.store_name} className="w-full h-full object-cover" />
+                              ) : (
+                                <Store size={20} className="text-zinc-500" />
+                              )}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex justify-between items-start">
+                                <h3 className="font-bold text-base truncate text-white">{seller.store_name}</h3>
+                                <span className="text-[10px] px-2 py-0.5 rounded font-extrabold flex-shrink-0" style={{ background: 'rgba(239,68,68,0.1)', color: '#EF4444' }}>
+                                  {seller.distanceKm.toFixed(2)} KM
+                                </span>
+                              </div>
+                              <p className="text-[9px] font-bold text-red-400 uppercase tracking-wide mt-0.5">⚠️ Out of Zone</p>
+                            </div>
+                          </div>
+                          <p className="text-xs" style={{ color: '#8A8A8A' }}>{seller.description}</p>
+                          <p className="text-xs font-semibold mt-2" style={{ color: '#EF4444' }}>⚠️ Locked to guarantee 30-min SLA</p>
                         </div>
-                        <p className="text-xs" style={{ color: '#8A8A8A' }}>{seller.description}</p>
-                        <p className="text-xs font-semibold mt-2" style={{ color: '#EF4444' }}>⚠️ Locked to guarantee 30-min SLA</p>
                       </div>
                     ))}
                   </div>
@@ -2221,6 +2287,26 @@ export default function CustomerDashboard() {
                     checked={notifPush}
                     onChange={e => setNotifPush(e.target.checked)}
                     className="w-4 h-4 accent-yellow-500"
+                  />
+                </div>
+
+                <div className="flex justify-between items-center p-3 rounded-lg bg-zinc-900 border border-zinc-850">
+                  <div>
+                    <span className="block text-xs font-semibold text-white">Background Push Notifications</span>
+                    <span className="text-[10px] text-zinc-500">Receive order status alerts even if the site is closed</span>
+                  </div>
+                  <input
+                    type="checkbox"
+                    disabled={pushLoading || customerId === '00000000-0000-0000-0000-000000000000'}
+                    checked={pushSubscribed}
+                    onChange={async (e) => {
+                      if (e.target.checked) {
+                        await subscribeToPush(customerId);
+                      } else {
+                        await unsubscribeFromPush(customerId);
+                      }
+                    }}
+                    className="w-4 h-4 accent-yellow-500 disabled:opacity-50"
                   />
                 </div>
               </div>
