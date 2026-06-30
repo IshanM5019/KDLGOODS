@@ -1650,7 +1650,7 @@ export default function DeliveryDashboard() {
                           <div className="p-3 rounded-lg bg-zinc-900 text-[11px] space-y-1.5 border border-zinc-800">
                             <div className="flex justify-between">
                               <span className="text-zinc-500">Central UPI ID:</span>
-                              <span className="text-yellow-500 font-mono font-bold">kdlgoods@icici</span>
+                              <span className="text-yellow-500 font-mono font-bold">ishanmarkam59@oksbi</span>
                             </div>
                             <div className="flex justify-between">
                               <span className="text-zinc-500">Account Name:</span>

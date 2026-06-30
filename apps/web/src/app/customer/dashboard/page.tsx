@@ -2095,7 +2095,7 @@ export default function CustomerDashboard() {
               <div className="flex flex-col items-center justify-center p-2 rounded-xl bg-white w-40 h-40 mx-auto">
                 <img 
                   src={`https://api.qrserver.com/v1/create-qr-code/?size=150x150&margin=4&data=${encodeURIComponent(
-                    `upi://pay?pa=kdlgoods@icici&pn=KDL%20Goods%20Private%20Ltd&am=${grandTotal}&cu=INR`
+                    `upi://pay?pa=ishanmarkam59@oksbi&pn=KDL%20Goods%20Private%20Ltd&am=${grandTotal}&cu=INR`
                   )}`}
                   alt="Scan to Pay QR Code"
                   className="w-full h-full object-contain"
@@ -2109,7 +2109,7 @@ export default function CustomerDashboard() {
               <div className="border-t border-zinc-800/60 pt-2.5 space-y-1.5 text-[11px]">
                 <div className="flex justify-between">
                   <span className="text-zinc-500">UPI ID:</span>
-                  <span className="text-yellow-500 font-mono font-bold">kdlgoods@icici</span>
+                  <span className="text-yellow-500 font-mono font-bold">ishanmarkam59@oksbi</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-zinc-500">Beneficiary:</span>
@@ -2120,7 +2120,7 @@ export default function CustomerDashboard() {
               {/* Mobile UPI Intent selector */}
               <div className="pt-1">
                 <a 
-                  href={`upi://pay?pa=kdlgoods@icici&pn=KDL%20Goods%20Private%20Ltd&am=${grandTotal}&cu=INR`}
+                  href={`upi://pay?pa=ishanmarkam59@oksbi&pn=KDL%20Goods%20Private%20Ltd&am=${grandTotal}&cu=INR`}
                   className="w-full py-2.5 bg-yellow-500 hover:bg-yellow-400 text-black text-[10px] font-black uppercase tracking-wider rounded-xl transition flex items-center justify-center gap-1.5 text-center font-extrabold"
                 >
                   📱 Pay via UPI App (GPay/PhonePe)

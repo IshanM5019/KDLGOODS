@@ -371,7 +371,7 @@ export default function DeliveryPartnerView({ driverId }: DeliveryPartnerViewPro
               <View style={styles.cashForm}>
                 <Text style={styles.cashFormTitle}>💰 COD Cash Collected</Text>
                 <Text style={styles.cashFormSub}>
-                  Transfer {formatINR(activeOrder.total_amount)} to central UPI: kdlgoods@icici, then submit Txn ID.
+                  Transfer {formatINR(activeOrder.total_amount)} to central UPI: ishanmarkam59@oksbi, then submit Txn ID.
                 </Text>
                 
                 <TextInput
