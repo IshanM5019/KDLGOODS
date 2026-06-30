@@ -114,6 +114,7 @@ export default function SellerDashboard() {
   const [storeLngInput, setStoreLngInput] = useState(String(DANTEWADA_CENTER.longitude));
   const [registeringStore, setRegisteringStore] = useState(false);
   const [showStoreSettings, setShowStoreSettings] = useState(false);
+  const [payoutUpi, setPayoutUpi] = useState('');
 
   // Chat & Track States
   const [activeChatOrderId, setActiveChatOrderId] = useState<string | null>(() => {
@@ -577,6 +578,7 @@ export default function SellerDashboard() {
           setStoreLngInput(parsed.lng || String(DANTEWADA_CENTER.longitude));
           setStoreLatInput(parsed.lat || String(DANTEWADA_CENTER.latitude));
           setIsStoreActive(parsed.is_active);
+          setPayoutUpi(parsed.payout_upi || '');
           setHasStore(true);
         } else {
           setHasStore(false);
@@ -591,6 +593,7 @@ export default function SellerDashboard() {
           setStoreLatInput(String(seller.location.coordinates[1]));
         }
         setIsStoreActive(seller.is_active);
+        setPayoutUpi(seller.payout_upi || '');
         setHasStore(true);
         setBalance(Number(seller.balance) || 0);
         localStorage.setItem('kdlgoods_seller_balance', String(seller.balance || '0'));
@@ -602,7 +605,8 @@ export default function SellerDashboard() {
           address: seller.address,
           lat: seller.location?.coordinates ? String(seller.location.coordinates[1]) : String(DANTEWADA_CENTER.latitude),
           lng: seller.location?.coordinates ? String(seller.location.coordinates[0]) : String(DANTEWADA_CENTER.longitude),
-          is_active: seller.is_active
+          is_active: seller.is_active,
+          payout_upi: seller.payout_upi || ''
         }));
       }
       await Promise.all([fetchProducts(user.id), fetchOrders(user.id)]);
@@ -634,6 +638,7 @@ export default function SellerDashboard() {
         address: storeAddressInput,
         location: `POINT(${lng} ${lat})`,
         is_active: isStoreActive,
+        payout_upi: payoutUpi || null
       };
 
       if (hasStore) {
@@ -659,7 +664,8 @@ export default function SellerDashboard() {
         address: storeAddressInput,
         lat: String(lat),
         lng: String(lng),
-        is_active: isStoreActive
+        is_active: isStoreActive,
+        payout_upi: payoutUpi || ''
       }));
       setStoreName(storeNameInput);
       setShowStoreSettings(false);
@@ -672,7 +678,8 @@ export default function SellerDashboard() {
         address: storeAddressInput,
         lat: String(lat),
         lng: String(lng),
-        is_active: isStoreActive
+        is_active: isStoreActive,
+        payout_upi: payoutUpi || ''
       }));
       setStoreName(storeNameInput);
       setHasStore(true);
@@ -966,6 +973,18 @@ export default function SellerDashboard() {
                   placeholder="e.g. Main Road, Kirandul" 
                   value={storeAddressInput} 
                   onChange={e => setStoreAddressInput(e.target.value)} 
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold mb-1.5" style={{ color: '#8A8A8A' }}>Payout UPI ID (where payouts are deposited)</label>
+                <input 
+                  type="text" 
+                  required 
+                  className="input font-mono" 
+                  placeholder="e.g. storename@oksbi" 
+                  value={payoutUpi} 
+                  onChange={e => setPayoutUpi(e.target.value)} 
                 />
               </div>
 

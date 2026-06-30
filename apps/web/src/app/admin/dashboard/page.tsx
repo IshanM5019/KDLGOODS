@@ -28,12 +28,14 @@ interface Seller {
   id: string;
   store_name: string;
   balance: number;
+  payout_upi?: string | null;
   profiles?: { full_name: string; phone_number: string | null } | null;
 }
 
 interface Rider {
   id: string;
   balance: number;
+  payout_upi?: string | null;
   profiles?: { full_name: string; phone_number: string | null } | null;
 }
 
@@ -70,7 +72,7 @@ export default function AdminDashboard() {
 
   // Modal Payout Management
   const [showPayoutModal, setShowPayoutModal] = useState(false);
-  const [payoutRecipient, setPayoutRecipient] = useState<{ id: string; name: string; role: 'seller' | 'delivery'; balance: number } | null>(null);
+  const [payoutRecipient, setPayoutRecipient] = useState<{ id: string; name: string; role: 'seller' | 'delivery'; balance: number; payoutUpi?: string | null } | null>(null);
   const [payoutAmount, setPayoutAmount] = useState('');
   const [payoutMethod, setPayoutMethod] = useState<'cheque' | 'bank_transfer' | 'upi' | 'cash'>('cheque');
   const [payoutRef, setPayoutRef] = useState('');
@@ -172,6 +174,7 @@ export default function AdminDashboard() {
           id,
           store_name,
           balance,
+          payout_upi,
           profiles(full_name, phone_number)
         `);
 
@@ -183,6 +186,7 @@ export default function AdminDashboard() {
         .select(`
           id,
           balance,
+          payout_upi,
           profiles(full_name, phone_number)
         `);
 
@@ -215,12 +219,14 @@ export default function AdminDashboard() {
         id: s.id,
         store_name: s.store_name,
         balance: Number(s.balance) || 0,
+        payout_upi: s.payout_upi,
         profiles: Array.isArray(s.profiles) ? s.profiles[0] : s.profiles
       }));
 
       const mappedRiders = (ridersData || []).map((r: any) => ({
         id: r.id,
         balance: Number(r.balance) || 0,
+        payout_upi: r.payout_upi,
         profiles: Array.isArray(r.profiles) ? r.profiles[0] : r.profiles
       }));
 
@@ -262,8 +268,8 @@ export default function AdminDashboard() {
     }
   };
 
-  const handleOpenPayout = (id: string, name: string, role: 'seller' | 'delivery', balance: number) => {
-    setPayoutRecipient({ id, name, role, balance });
+  const handleOpenPayout = (id: string, name: string, role: 'seller' | 'delivery', balance: number, payoutUpi?: string | null) => {
+    setPayoutRecipient({ id, name, role, balance, payoutUpi });
     setPayoutAmount(String(balance));
     setPayoutMethod('cheque');
     setPayoutRef('');
@@ -568,6 +574,7 @@ export default function AdminDashboard() {
                       <th className="p-3">Store Name</th>
                       <th className="p-3">Merchant Owner</th>
                       <th className="p-3">Contact</th>
+                      <th className="p-3">Payout UPI</th>
                       <th className="p-3">Current Balance</th>
                       <th className="p-3 text-right">Actions</th>
                     </tr>
@@ -575,7 +582,7 @@ export default function AdminDashboard() {
                   <tbody>
                     {sellers.length === 0 ? (
                       <tr>
-                        <td colSpan={5} className="p-8 text-center text-zinc-500">No merchant profiles found.</td>
+                        <td colSpan={6} className="p-8 text-center text-zinc-500">No merchant profiles found.</td>
                       </tr>
                     ) : (
                       sellers.map((s) => (
@@ -583,11 +590,12 @@ export default function AdminDashboard() {
                           <td className="p-3 font-semibold text-zinc-200">{s.store_name}</td>
                           <td className="p-3 text-zinc-300">{s.profiles?.full_name || 'Owner'}</td>
                           <td className="p-3 text-zinc-400 font-mono">{s.profiles?.phone_number || 'N/A'}</td>
+                          <td className="p-3 font-mono text-zinc-350">{s.payout_upi || 'Not Added'}</td>
                           <td className="p-3 font-bold text-yellow-500">{formatINR(s.balance)}</td>
                           <td className="p-3 text-right">
                             <button
                               disabled={s.balance <= 0}
-                              onClick={() => handleOpenPayout(s.id, s.store_name, 'seller', s.balance)}
+                              onClick={() => handleOpenPayout(s.id, s.store_name, 'seller', s.balance, s.payout_upi)}
                               className="px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider bg-yellow-500 hover:bg-yellow-400 text-black transition disabled:opacity-30 disabled:cursor-not-allowed"
                             >
                               Settle & Pay Out
@@ -616,6 +624,7 @@ export default function AdminDashboard() {
                     <tr className="border-b border-zinc-850 text-zinc-500 font-extrabold uppercase bg-zinc-900 text-[10px] tracking-wider">
                       <th className="p-3">Rider Name</th>
                       <th className="p-3">Rider Contact</th>
+                      <th className="p-3">Payout UPI</th>
                       <th className="p-3">Accumulated Fares</th>
                       <th className="p-3 text-right">Actions</th>
                     </tr>
@@ -623,18 +632,19 @@ export default function AdminDashboard() {
                   <tbody>
                     {riders.length === 0 ? (
                       <tr>
-                        <td colSpan={4} className="p-8 text-center text-zinc-500">No active riders found.</td>
+                        <td colSpan={5} className="p-8 text-center text-zinc-500">No active riders found.</td>
                       </tr>
                     ) : (
                       riders.map((r) => (
                         <tr key={r.id} className="border-b border-zinc-850 hover:bg-[#1E1E1E] transition">
                           <td className="p-3 font-semibold text-zinc-200">{r.profiles?.full_name || 'Rider'}</td>
                           <td className="p-3 text-zinc-400 font-mono">{r.profiles?.phone_number || 'N/A'}</td>
+                          <td className="p-3 font-mono text-zinc-350">{r.payout_upi || 'Not Added'}</td>
                           <td className="p-3 font-bold text-yellow-500">{formatINR(r.balance)}</td>
                           <td className="p-3 text-right">
                             <button
                               disabled={r.balance <= 0}
-                              onClick={() => handleOpenPayout(r.id, r.profiles?.full_name || 'Rider', 'delivery', r.balance)}
+                              onClick={() => handleOpenPayout(r.id, r.profiles?.full_name || 'Rider', 'delivery', r.balance, r.payout_upi)}
                               className="px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider bg-yellow-500 hover:bg-yellow-400 text-black transition disabled:opacity-30 disabled:cursor-not-allowed"
                             >
                               Settle & Pay Out
@@ -739,6 +749,10 @@ export default function AdminDashboard() {
               <div className="flex justify-between">
                 <span className="text-zinc-500">Partner Role:</span>
                 <span className="font-semibold text-yellow-500 uppercase">{payoutRecipient.role}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-zinc-500">Registered UPI:</span>
+                <span className="font-mono text-green-400 font-bold">{payoutRecipient.payoutUpi || 'No UPI Registered'}</span>
               </div>
               <div className="flex justify-between border-t border-zinc-850 pt-1.5 mt-1.5">
                 <span className="text-zinc-400 font-semibold">Total Outstanding Balance:</span>

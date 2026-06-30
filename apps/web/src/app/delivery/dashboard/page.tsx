@@ -109,6 +109,7 @@ export default function DeliveryDashboard() {
   const [profileError, setProfileError] = useState<string | null>(null);
   const [notifEmail, setNotifEmail] = useState(true);
   const [notifPush, setNotifPush] = useState(true);
+  const [payoutUpi, setPayoutUpi] = useState('');
   const [loadingUser, setLoadingUser] = useState(true);
   const [dbConnected, setDbConnected] = useState(true);
   const [pastDeliveries, setPastDeliveries] = useState<any[]>([]);
@@ -414,14 +415,15 @@ export default function DeliveryDashboard() {
             .insert({ id: user.id, is_online: false, balance: 0.00 });
         }
 
-        // Fetch balance from delivery_partners
+        // Fetch balance and payout UPI from delivery_partners
         const { data: partnerData } = await supabase
           .from('delivery_partners')
-          .select('balance')
+          .select('balance, payout_upi')
           .eq('id', user.id)
           .single();
         if (partnerData) {
           setBalance(Number(partnerData.balance) || 0);
+          setPayoutUpi(partnerData.payout_upi || '');
           localStorage.setItem('kdlgoods_rider_balance', String(partnerData.balance || '0'));
         }
 
@@ -957,6 +959,15 @@ export default function DeliveryDashboard() {
         }, { onConflict: 'id' });
 
       if (error) throw error;
+
+      // Save payout UPI details
+      const { error: partnerErr } = await supabase
+        .from('delivery_partners')
+        .update({ payout_upi: payoutUpi || null })
+        .eq('id', user.id);
+
+      if (partnerErr) throw partnerErr;
+
       setProfileSuccess('Profile saved successfully!');
     } catch (err: any) {
       setProfileError(err.message || 'Failed to update profile.');
@@ -2014,6 +2025,18 @@ export default function DeliveryDashboard() {
                     value={profileAddress}
                     onChange={e => setProfileAddress(e.target.value)}
                     placeholder="House No, Street, Kirandul, Dantewada"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-zinc-400 mb-1.5">Payout UPI ID (where rider fares are paid)</label>
+                  <input
+                    type="text"
+                    required
+                    className="input font-mono"
+                    value={payoutUpi}
+                    onChange={e => setPayoutUpi(e.target.value)}
+                    placeholder="e.g. ridername@oksbi"
                   />
                 </div>
 
