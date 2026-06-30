@@ -1,10 +1,63 @@
 'use client';
 
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { ShoppingBag, Store, MapPin, Zap, ShieldAlert, Award, Clock } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import { supabase } from '../lib/supabase';
+import { ShoppingBag, Store, MapPin, Zap, ShieldAlert, Award, Clock, Loader2 } from 'lucide-react';
 
 export default function HomePage() {
+  const router = useRouter();
+  const [checkingAuth, setCheckingAuth] = useState(true);
+
+  useEffect(() => {
+    const checkSession = async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        let user = session?.user;
+        if (!user) {
+          const { data: { user: apiUser } } = await supabase.auth.getUser();
+          user = apiUser || undefined;
+        }
+
+        if (user) {
+          // Fetch user profile to verify role and redirect
+          const { data: profile } = await supabase
+            .from('profiles')
+            .select('role')
+            .eq('id', user.id)
+            .single();
+          
+          const role = profile?.role || user.user_metadata?.role || 'customer';
+          if (role === 'seller') {
+            router.push('/seller/dashboard');
+          } else if (role === 'delivery') {
+            router.push('/delivery/dashboard');
+          } else {
+            router.push('/customer/dashboard');
+          }
+        } else {
+          setCheckingAuth(false);
+        }
+      } catch (err) {
+        console.error('Auth check failed:', err);
+        setCheckingAuth(false);
+      }
+    };
+    checkSession();
+  }, [router]);
+
+  if (checkingAuth) {
+    return (
+      <div className="min-h-screen flex items-center justify-center text-white" style={{ backgroundColor: '#121212' }}>
+        <div className="flex flex-col items-center gap-3">
+          <Loader2 className="animate-spin text-yellow-500" size={32} />
+          <p className="text-sm text-zinc-400">Restoring your session...</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', backgroundColor: '#121212' }}>
       {/* Navigation Header */}
