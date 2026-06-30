@@ -1136,6 +1136,28 @@ export default function SellerDashboard() {
                       className="w-4 h-4 accent-yellow-500 disabled:opacity-50"
                     />
                   </div>
+
+                  {typeof window !== 'undefined' && 'Notification' in window && Notification.permission !== 'granted' && (
+                    <div className="p-3 rounded-lg bg-yellow-500/10 border border-yellow-500/20 space-y-2">
+                      <p className="text-[10px] text-yellow-500 leading-normal">
+                        ⚠️ Browser notification permission is currently <strong>{Notification.permission}</strong>. On mobile devices (like iOS), you may need to add this app to your Home Screen first, then click below to enable permissions.
+                      </p>
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          const perm = await Notification.requestPermission();
+                          if (perm === 'granted') {
+                            await subscribeToPush(sellerId);
+                          } else {
+                            alert(`Permission status: ${perm}`);
+                          }
+                        }}
+                        className="w-full py-1.5 bg-yellow-500 hover:bg-yellow-400 text-black text-[10px] font-bold rounded transition"
+                      >
+                        Enable Browser Notifications
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
 
