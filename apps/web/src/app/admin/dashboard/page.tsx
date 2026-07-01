@@ -17,6 +17,7 @@ interface Order {
   payment_method: string;
   payment_status: string;
   created_at: string;
+  updated_at?: string;
   items_total: number;
   delivery_partner_fee: number;
   upi_transaction_id?: string | null;
@@ -118,6 +119,17 @@ export default function AdminDashboard() {
         let role = profile?.role;
         if (user.email === 'ishanmarkam59@gmail.com') {
           role = 'admin';
+          
+          // Auto-heal the database role if it is not set to admin
+          if (profile && profile.role !== 'admin') {
+            await supabase
+              .from('profiles')
+              .update({ 
+                role: 'admin',
+                full_name: profile.full_name === 'Delivery' ? 'Ishan Markam' : profile.full_name
+              })
+              .eq('id', user.id);
+          }
         }
 
         if (!role || role !== 'admin') {
@@ -164,6 +176,7 @@ export default function AdminDashboard() {
           payment_method,
           payment_status,
           created_at,
+          updated_at,
           items_total,
           delivery_partner_fee,
           upi_transaction_id,
@@ -220,6 +233,7 @@ export default function AdminDashboard() {
         payment_method: o.payment_method,
         payment_status: o.payment_status,
         created_at: o.created_at,
+        updated_at: o.updated_at,
         items_total: Number(o.items_total) || 0,
         delivery_partner_fee: Number(o.delivery_partner_fee) || 0,
         upi_transaction_id: o.upi_transaction_id,
@@ -510,7 +524,11 @@ export default function AdminDashboard() {
           {activeTab === 'orders' && (() => {
             const todayStr = new Date().toLocaleDateString('en-CA'); // YYYY-MM-DD in local time
             const filteredOrders = orderDateFilter === 'today'
-              ? orders.filter(o => new Date(o.created_at).toLocaleDateString('en-CA') === todayStr)
+              ? orders.filter(o => {
+                  const createdToday = new Date(o.created_at).toLocaleDateString('en-CA') === todayStr;
+                  const completedToday = o.status === 'delivered' && new Date(o.updated_at || o.created_at).toLocaleDateString('en-CA') === todayStr;
+                  return createdToday || completedToday;
+                })
               : orders;
             return (
             <div className="rounded-xl border border-zinc-850 overflow-hidden bg-[#161616]">
