@@ -55,6 +55,7 @@ export default function AdminDashboard() {
   const [loading, setLoading] = useState(true);
   const [adminUser, setAdminUser] = useState<any>(null);
   const [activeTab, setActiveTab] = useState<'orders' | 'sellers' | 'riders' | 'payouts'>('orders');
+  const [orderDateFilter, setOrderDateFilter] = useState<'today' | 'all'>('today');
 
   // Database lists
   const [orders, setOrders] = useState<Order[]>([]);
@@ -490,16 +491,47 @@ export default function AdminDashboard() {
         <div className="space-y-4">
           
           {/* TAB 1: ORDER HISTORY */}
-          {activeTab === 'orders' && (
+          {activeTab === 'orders' && (() => {
+            const todayStr = new Date().toLocaleDateString('en-CA'); // YYYY-MM-DD in local time
+            const filteredOrders = orderDateFilter === 'today'
+              ? orders.filter(o => new Date(o.created_at).toLocaleDateString('en-CA') === todayStr)
+              : orders;
+            return (
             <div className="rounded-xl border border-zinc-850 overflow-hidden bg-[#161616]">
-              <div className="p-4 border-b border-zinc-850 flex justify-between items-center bg-[#1C1C1C]">
-                <h3 className="text-xs font-bold text-yellow-500 uppercase tracking-wider">Completed and Active Orders</h3>
-                <button 
-                  onClick={fetchAllData}
-                  className="p-1.5 text-zinc-400 hover:text-yellow-500 rounded bg-zinc-900 border border-zinc-800 transition"
-                >
-                  <RefreshCw size={13} />
-                </button>
+              <div className="p-4 border-b border-zinc-850 flex flex-wrap justify-between items-center gap-3 bg-[#1C1C1C]">
+                <h3 className="text-xs font-bold text-yellow-500 uppercase tracking-wider">
+                  {orderDateFilter === 'today' ? "Today's Orders" : 'All Orders'}
+                </h3>
+                <div className="flex items-center gap-2">
+                  <div className="flex rounded-lg overflow-hidden border border-zinc-800 text-[10px] font-bold">
+                    <button
+                      onClick={() => setOrderDateFilter('today')}
+                      className={`px-3 py-1.5 transition ${
+                        orderDateFilter === 'today'
+                          ? 'bg-yellow-500 text-black'
+                          : 'bg-zinc-900 text-zinc-400 hover:text-zinc-200'
+                      }`}
+                    >
+                      TODAY
+                    </button>
+                    <button
+                      onClick={() => setOrderDateFilter('all')}
+                      className={`px-3 py-1.5 transition ${
+                        orderDateFilter === 'all'
+                          ? 'bg-yellow-500 text-black'
+                          : 'bg-zinc-900 text-zinc-400 hover:text-zinc-200'
+                      }`}
+                    >
+                      ALL
+                    </button>
+                  </div>
+                  <button 
+                    onClick={fetchAllData}
+                    className="p-1.5 text-zinc-400 hover:text-yellow-500 rounded bg-zinc-900 border border-zinc-800 transition"
+                  >
+                    <RefreshCw size={13} />
+                  </button>
+                </div>
               </div>
 
               <div className="overflow-x-auto">
@@ -518,12 +550,14 @@ export default function AdminDashboard() {
                     </tr>
                   </thead>
                   <tbody>
-                    {orders.length === 0 ? (
+                    {filteredOrders.length === 0 ? (
                       <tr>
-                        <td colSpan={9} className="p-8 text-center text-zinc-500">No order history found.</td>
+                        <td colSpan={9} className="p-8 text-center text-zinc-500">
+                          {orderDateFilter === 'today' ? 'No orders today yet.' : 'No order history found.'}
+                        </td>
                       </tr>
                     ) : (
-                      orders.map((o) => (
+                      filteredOrders.map((o) => (
                         <tr key={o.id} className="border-b border-zinc-850 hover:bg-[#1E1E1E] transition">
                           <td className="p-3 font-mono font-bold text-zinc-400">#{o.id.slice(0, 5).toUpperCase()}</td>
                           <td className="p-3 font-semibold text-zinc-200">{o.customer?.full_name || 'Customer'}</td>
@@ -556,8 +590,20 @@ export default function AdminDashboard() {
                   </tbody>
                 </table>
               </div>
+
+              {/* Today's summary bar */}
+              {orderDateFilter === 'today' && filteredOrders.length > 0 && (
+                <div className="p-3 border-t border-zinc-850 bg-[#1A1A1A] flex flex-wrap gap-4 items-center text-[10px] font-bold uppercase tracking-wider">
+                  <span className="text-zinc-500">Today's Summary:</span>
+                  <span className="text-white">{filteredOrders.length} Orders</span>
+                  <span className="text-yellow-500">{formatINR(filteredOrders.reduce((s, o) => s + o.total_amount, 0))} Total</span>
+                  <span className="text-green-500">{filteredOrders.filter(o => o.status === 'delivered').length} Delivered</span>
+                  <span className="text-blue-400">{filteredOrders.filter(o => o.status !== 'delivered' && o.status !== 'cancelled').length} In Progress</span>
+                </div>
+              )}
             </div>
-          )}
+            );
+          })()}
 
           {/* TAB 2: SELLER PAYOUTS */}
           {activeTab === 'sellers' && (
