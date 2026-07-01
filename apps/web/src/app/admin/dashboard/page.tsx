@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { supabase } from '../../../lib/supabase';
 import { 
   ShieldAlert, Loader2, Landmark, Clock, CheckCircle2, 
-  TrendingUp, DollarSign, Users, Award, FileText, ChevronRight, 
+  TrendingUp, DollarSign, Users, Award, FileText, ChevronRight, ChevronDown,
   PlusCircle, RefreshCw, X, MessageSquare, Shield, HelpCircle 
 } from 'lucide-react';
 import { formatINR } from '@kdlgoods/shared';
@@ -19,6 +19,11 @@ interface Order {
   created_at: string;
   items_total: number;
   delivery_partner_fee: number;
+  upi_transaction_id?: string | null;
+  upi_screenshot_url?: string | null;
+  driver_cash_submitted?: boolean;
+  driver_cash_txn_id?: string | null;
+  driver_cash_screenshot_url?: string | null;
   customer?: { full_name: string } | null;
   seller?: { store_name: string } | null;
   delivery_partner?: { full_name: string } | null;
@@ -56,6 +61,7 @@ export default function AdminDashboard() {
   const [adminUser, setAdminUser] = useState<any>(null);
   const [activeTab, setActiveTab] = useState<'orders' | 'sellers' | 'riders' | 'payouts'>('orders');
   const [orderDateFilter, setOrderDateFilter] = useState<'today' | 'all'>('today');
+  const [expandedOrderId, setExpandedOrderId] = useState<string | null>(null);
 
   // Database lists
   const [orders, setOrders] = useState<Order[]>([]);
@@ -160,6 +166,11 @@ export default function AdminDashboard() {
           created_at,
           items_total,
           delivery_partner_fee,
+          upi_transaction_id,
+          upi_screenshot_url,
+          driver_cash_submitted,
+          driver_cash_txn_id,
+          driver_cash_screenshot_url,
           customer:profiles!customer_id(full_name),
           seller:sellers(store_name),
           delivery_partner:profiles!delivery_partner_id(full_name)
@@ -211,6 +222,11 @@ export default function AdminDashboard() {
         created_at: o.created_at,
         items_total: Number(o.items_total) || 0,
         delivery_partner_fee: Number(o.delivery_partner_fee) || 0,
+        upi_transaction_id: o.upi_transaction_id,
+        upi_screenshot_url: o.upi_screenshot_url,
+        driver_cash_submitted: o.driver_cash_submitted,
+        driver_cash_txn_id: o.driver_cash_txn_id,
+        driver_cash_screenshot_url: o.driver_cash_screenshot_url,
         customer: o.customer ? { full_name: o.customer.full_name } : null,
         seller: o.seller ? { store_name: o.seller.store_name } : null,
         delivery_partner: o.delivery_partner ? { full_name: o.delivery_partner.full_name } : null,
@@ -538,6 +554,7 @@ export default function AdminDashboard() {
                 <table className="w-full text-xs text-left border-collapse">
                   <thead>
                     <tr className="border-b border-zinc-850 text-zinc-500 font-extrabold uppercase bg-zinc-900 text-[10px] tracking-wider">
+                      <th className="p-3 w-8"></th>
                       <th className="p-3">Order ID</th>
                       <th className="p-3">Customer</th>
                       <th className="p-3">Merchant</th>
@@ -552,39 +569,210 @@ export default function AdminDashboard() {
                   <tbody>
                     {filteredOrders.length === 0 ? (
                       <tr>
-                        <td colSpan={9} className="p-8 text-center text-zinc-500">
+                        <td colSpan={10} className="p-8 text-center text-zinc-500">
                           {orderDateFilter === 'today' ? 'No orders today yet.' : 'No order history found.'}
                         </td>
                       </tr>
                     ) : (
                       filteredOrders.map((o) => (
-                        <tr key={o.id} className="border-b border-zinc-850 hover:bg-[#1E1E1E] transition">
-                          <td className="p-3 font-mono font-bold text-zinc-400">#{o.id.slice(0, 5).toUpperCase()}</td>
-                          <td className="p-3 font-semibold text-zinc-200">{o.customer?.full_name || 'Customer'}</td>
-                          <td className="p-3 text-zinc-300 font-semibold">{o.seller?.store_name || 'Store'}</td>
-                          <td className="p-3 text-zinc-400">{o.delivery_partner?.full_name || 'Unassigned'}</td>
-                          <td className="p-3">
-                            <span className={`px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-wider border ${
-                              o.status === 'delivered' ? 'bg-green-500/10 text-green-500 border-green-500/20' :
-                              o.status === 'cancelled' ? 'bg-red-500/10 text-red-500 border-red-500/20' :
-                              'bg-yellow-500/10 text-yellow-500 border-yellow-500/20 animate-pulse'
-                            }`}>
-                              {o.status}
-                            </span>
-                          </td>
-                          <td className="p-3 font-bold text-white">{formatINR(o.total_amount)}</td>
-                          <td className="p-3 text-zinc-400 uppercase font-mono">{o.payment_method}</td>
-                          <td className="p-3">
-                            <span className={`px-2 py-0.5 rounded text-[8px] font-bold ${
-                              o.payment_status === 'paid' 
-                                ? 'bg-green-500/10 text-green-400 border border-green-500/20' 
-                                : 'bg-yellow-500/10 text-yellow-500 border border-yellow-500/20'
-                            }`}>
-                              {o.payment_status.toUpperCase()}
-                            </span>
-                          </td>
-                          <td className="p-3 text-zinc-500 font-mono">{new Date(o.created_at).toLocaleDateString()}</td>
-                        </tr>
+                        <React.Fragment key={o.id}>
+                          <tr 
+                            onClick={() => setExpandedOrderId(expandedOrderId === o.id ? null : o.id)}
+                            className="border-b border-zinc-850 hover:bg-[#1E1E1E] transition cursor-pointer"
+                          >
+                            <td className="p-3 text-center">
+                              {expandedOrderId === o.id ? (
+                                <ChevronDown size={14} className="text-yellow-500" />
+                              ) : (
+                                <ChevronRight size={14} className="text-zinc-500" />
+                              )}
+                            </td>
+                            <td className="p-3 font-mono font-bold text-zinc-400">#{o.id.slice(0, 5).toUpperCase()}</td>
+                            <td className="p-3 font-semibold text-zinc-200">{o.customer?.full_name || 'Customer'}</td>
+                            <td className="p-3 text-zinc-300 font-semibold">{o.seller?.store_name || 'Store'}</td>
+                            <td className="p-3 text-zinc-400">{o.delivery_partner?.full_name || 'Unassigned'}</td>
+                            <td className="p-3">
+                              <span className={`px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-wider border ${
+                                o.status === 'delivered' ? 'bg-green-500/10 text-green-500 border-green-500/20' :
+                                o.status === 'cancelled' ? 'bg-red-500/10 text-red-500 border-red-500/20' :
+                                'bg-yellow-500/10 text-yellow-500 border-yellow-500/20 animate-pulse'
+                              }`}>
+                                {o.status}
+                              </span>
+                            </td>
+                            <td className="p-3 font-bold text-white">{formatINR(o.total_amount)}</td>
+                            <td className="p-3 text-zinc-400 uppercase font-mono">{o.payment_method}</td>
+                            <td className="p-3">
+                              <div className="flex items-center gap-1.5">
+                                <span className={`px-2 py-0.5 rounded text-[8px] font-bold ${
+                                  o.payment_status === 'paid' 
+                                    ? 'bg-green-500/10 text-green-400 border border-green-500/20' 
+                                    : 'bg-yellow-500/10 text-yellow-500 border border-yellow-500/20'
+                                }`}>
+                                  {o.payment_status.toUpperCase()}
+                                </span>
+                                {o.payment_method === 'cod' && o.driver_cash_submitted && (
+                                  <span className="text-[9px] text-green-500 font-bold" title="Rider submitted cash">
+                                    [PROOF]
+                                  </span>
+                                )}
+                                {o.payment_method === 'upi' && o.upi_transaction_id && (
+                                  <span className="text-[9px] text-blue-400 font-bold" title="Customer submitted UPI proof">
+                                    [PROOF]
+                                  </span>
+                                )}
+                              </div>
+                            </td>
+                            <td className="p-3 text-zinc-500 font-mono">{new Date(o.created_at).toLocaleDateString()}</td>
+                          </tr>
+                          
+                          {expandedOrderId === o.id && (
+                            <tr className="bg-zinc-900/40">
+                              <td colSpan={10} className="p-4 border-b border-zinc-850">
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-xs">
+                                  {/* Order Details */}
+                                  <div className="space-y-2">
+                                    <h4 className="font-extrabold text-yellow-500 uppercase tracking-wider text-[9px] mb-2">Order Breakdown</h4>
+                                    <div className="space-y-1.5 text-zinc-300">
+                                      <div className="flex justify-between border-b border-zinc-900 pb-1">
+                                        <span className="text-zinc-500">Order ID:</span>
+                                        <span className="font-mono text-zinc-200">{o.id}</span>
+                                      </div>
+                                      <div className="flex justify-between border-b border-zinc-900 pb-1">
+                                        <span className="text-zinc-500">Placed At:</span>
+                                        <span className="text-zinc-200">{new Date(o.created_at).toLocaleString()}</span>
+                                      </div>
+                                      <div className="flex justify-between border-b border-zinc-900 pb-1">
+                                        <span className="text-zinc-500">Items Subtotal:</span>
+                                        <span className="text-zinc-200 font-mono">{formatINR(o.items_total)}</span>
+                                      </div>
+                                      <div className="flex justify-between border-b border-zinc-900 pb-1">
+                                        <span className="text-zinc-500">Delivery Rider Fee:</span>
+                                        <span className="text-zinc-200 font-mono">{formatINR(o.delivery_partner_fee)}</span>
+                                      </div>
+                                      <div className="flex justify-between text-sm font-bold pt-1">
+                                        <span className="text-zinc-400">Grand Total:</span>
+                                        <span className="text-yellow-500 font-mono">{formatINR(o.total_amount)}</span>
+                                      </div>
+                                    </div>
+                                  </div>
+
+                                  {/* Payment Proof / Verification */}
+                                  <div className="space-y-3 border-t md:border-t-0 md:border-l border-zinc-850 pt-4 md:pt-0 md:pl-6">
+                                    <h4 className="font-extrabold text-yellow-500 uppercase tracking-wider text-[9px] mb-2">Payment Verification</h4>
+                                    
+                                    {o.payment_method === 'cod' ? (
+                                      <div className="space-y-2.5">
+                                        <div className="flex items-center gap-2">
+                                          <span className="text-zinc-500">Payment Type:</span>
+                                          <span className="px-2 py-0.5 rounded text-[9px] font-black uppercase bg-amber-500/10 text-amber-500 border border-amber-500/20">
+                                            Cash on Delivery (COD)
+                                          </span>
+                                        </div>
+                                        
+                                        <div className="flex items-center gap-2">
+                                          <span className="text-zinc-500">Rider Submission:</span>
+                                          {o.driver_cash_submitted ? (
+                                            <span className="text-green-400 font-bold uppercase text-[10px] flex items-center gap-1">
+                                              ✓ Transferred to Admin
+                                            </span>
+                                          ) : (
+                                            <span className="text-red-400 font-bold uppercase text-[10px] flex items-center gap-1">
+                                              ✗ Awaiting Rider Transfer
+                                            </span>
+                                          )}
+                                        </div>
+
+                                        {o.driver_cash_submitted && (
+                                          <div className="mt-2 bg-zinc-950/80 p-3 rounded-lg border border-zinc-850 space-y-2">
+                                            <div>
+                                              <span className="text-zinc-500 block mb-0.5">UPI Txn ID (Rider's Transfer):</span>
+                                              <span className="font-mono text-zinc-200 font-bold text-xs select-all bg-zinc-900 px-2 py-1 rounded border border-zinc-850 inline-block">
+                                                {o.driver_cash_txn_id || 'N/A'}
+                                              </span>
+                                            </div>
+                                            {o.driver_cash_screenshot_url && (
+                                              <div>
+                                                <span className="text-zinc-500 block mb-1">Receipt Screenshot Reference:</span>
+                                                {o.driver_cash_screenshot_url.startsWith('http') || o.driver_cash_screenshot_url.startsWith('mock') ? (
+                                                  <div className="space-y-1">
+                                                    <span className="text-[10px] text-zinc-500 block font-mono">Mock/Url path: {o.driver_cash_screenshot_url}</span>
+                                                    <a 
+                                                      href={o.driver_cash_screenshot_url} 
+                                                      target="_blank" 
+                                                      rel="noreferrer"
+                                                      className="inline-block hover:opacity-80 transition"
+                                                    >
+                                                      <img 
+                                                        src={o.driver_cash_screenshot_url.startsWith('mock') ? 'https://images.unsplash.com/photo-1559526324-4b87b5e36e44?auto=format&fit=crop&w=300&q=80' : o.driver_cash_screenshot_url} 
+                                                        alt="Rider Receipt Screenshot" 
+                                                        className="max-h-[120px] rounded border border-zinc-800"
+                                                      />
+                                                    </a>
+                                                  </div>
+                                                ) : (
+                                                  <div className="flex items-center gap-2 p-2 rounded bg-zinc-900 border border-zinc-850 font-mono text-[10px] text-zinc-300">
+                                                    <FileText size={12} className="text-yellow-500" />
+                                                    <span>{o.driver_cash_screenshot_url} (Attached File)</span>
+                                                  </div>
+                                                )}
+                                              </div>
+                                            )}
+                                          </div>
+                                        )}
+                                      </div>
+                                    ) : (
+                                      <div className="space-y-2.5">
+                                        <div className="flex items-center gap-2">
+                                          <span className="text-zinc-500">Payment Type:</span>
+                                          <span className="px-2 py-0.5 rounded text-[9px] font-black uppercase bg-blue-500/10 text-blue-400 border border-blue-500/20">
+                                            UPI Pre-Paid
+                                          </span>
+                                        </div>
+                                        
+                                        <div className="mt-2 bg-zinc-950/80 p-3 rounded-lg border border-zinc-850 space-y-2">
+                                          <div>
+                                            <span className="text-zinc-500 block mb-0.5">Customer UPI Txn ID:</span>
+                                            <span className="font-mono text-zinc-200 font-bold text-xs select-all bg-zinc-900 px-2 py-1 rounded border border-zinc-850 inline-block">
+                                              {o.upi_transaction_id || 'N/A'}
+                                            </span>
+                                          </div>
+                                          {o.upi_screenshot_url && (
+                                            <div>
+                                              <span className="text-zinc-500 block mb-1">Customer Receipt Screenshot:</span>
+                                              {o.upi_screenshot_url.startsWith('http') || o.upi_screenshot_url.startsWith('mock') ? (
+                                                <div className="space-y-1">
+                                                  <span className="text-[10px] text-zinc-500 block font-mono">Url path: {o.upi_screenshot_url}</span>
+                                                  <a 
+                                                    href={o.upi_screenshot_url} 
+                                                    target="_blank" 
+                                                    rel="noreferrer"
+                                                    className="inline-block hover:opacity-80 transition"
+                                                  >
+                                                    <img 
+                                                      src={o.upi_screenshot_url} 
+                                                      alt="Customer Receipt Screenshot" 
+                                                      className="max-h-[120px] rounded border border-zinc-800"
+                                                    />
+                                                  </a>
+                                                </div>
+                                              ) : (
+                                                <div className="flex items-center gap-2 p-2 rounded bg-zinc-900 border border-zinc-850 font-mono text-[10px] text-zinc-300">
+                                                  <FileText size={12} className="text-blue-400" />
+                                                  <span>{o.upi_screenshot_url} (Attached File)</span>
+                                                </div>
+                                              )}
+                                            </div>
+                                          )}
+                                        </div>
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                              </td>
+                            </tr>
+                          )}
+                        </React.Fragment>
                       ))
                     )}
                   </tbody>
